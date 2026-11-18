@@ -342,7 +342,41 @@ class Pipeline:
                 self.checkpoint()
             return summary
 
-    def _process(self, store, paper, metadata, match, name, force, export, expected_item=None):
+    def analyze_variant(self, store, paper, metadata, match, *, checkpoint=None, on_started=None):
+        """指定文献の新しい解析だけを保存し、正式版・文献の処理状態は変えない。"""
+        self.cli_calls = 0
+        self.checkpoint = checkpoint or (lambda: None)
+        self.variant_started = on_started
+        try:
+            self._process(
+                store,
+                paper,
+                metadata,
+                match,
+                self.config.analysis.default_provider,
+                True,
+                False,
+                preserve_paper=True,
+            )
+        except (ProviderError, WriteConflict, OSError, ValueError) as exc:
+            self._record_error(store, paper, exc, preserve_paper=True)
+            self.checkpoint()
+            raise
+        return store.latest_analysis(paper["paper_id"])
+
+    def _process(
+        self,
+        store,
+        paper,
+        metadata,
+        match,
+        name,
+        force,
+        export,
+        expected_item=None,
+        *,
+        preserve_paper=False,
+    ):
         config = self.config
         external = name != "fake"
         if external and metadata.get("no_external"):
@@ -510,6 +544,8 @@ class Pipeline:
                             started,
                         ),
                     )
+                if preserve_paper and self.variant_started:
+                    self.variant_started(run_id, started)
                 self.checkpoint()
                 if external:
                     self.cli_calls += 1
@@ -543,7 +579,8 @@ class Pipeline:
                         "INSERT OR REPLACE INTO portable_analyses VALUES (?,?,?)",
                         (run_id, portable_key, json.dumps(portable_input, ensure_ascii=False)),
                     )
-                    store.update(paper["paper_id"], state="analyzed", source_hash=source_hash)
+                    if not preserve_paper:
+                        store.update(paper["paper_id"], state="analyzed", source_hash=source_hash)
                 self.checkpoint()
                 analysis = dict(
                     data=result.data,
@@ -607,6 +644,8 @@ class Pipeline:
                         ),
                     )
                 exports += status == "written"
+        if preserve_paper:
+            return dict(analyzed=analyzed, exported=0, skipped=int(not analyzed))
         with store.transaction():
             store.update(
                 paper["paper_id"],
@@ -627,7 +666,7 @@ class Pipeline:
             )
         return dict(analyzed=analyzed, exported=exports, skipped=int(not analyzed and not exports))
 
-    def _record_error(self, store, paper, error):
+    def _record_error(self, store, paper, error, *, preserve_paper=False):
         retryable = isinstance(error, OSError) or getattr(error, "retryable", False)
         category = getattr(error, "category", type(error).__name__)
         count = paper["retry_count"] + 1
@@ -685,14 +724,15 @@ class Pipeline:
                         "INSERT OR REPLACE INTO analysis_usage VALUES (?,?)",
                         (run["run_id"], json.dumps(error.usage)),
                     )
-            store.update(
-                paper["paper_id"],
-                state=state,
-                error_type=category,
-                error_message=message,
-                retry_count=count,
-                next_retry_at=next_retry,
-            )
+            if not preserve_paper:
+                store.update(
+                    paper["paper_id"],
+                    state=state,
+                    error_type=category,
+                    error_message=message,
+                    retry_count=count,
+                    next_retry_at=next_retry,
+                )
             store.db.execute(
                 """UPDATE analysis_runs SET status='failed',error_type=?,error_message=?,
                 retryable=?,ended_at=?,elapsed_seconds=COALESCE(?,elapsed_seconds)

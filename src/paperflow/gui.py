@@ -471,7 +471,7 @@ class PaperFlowApp(SyncPanel):
             grid,
             columns=("status", "title", "year", "authors", "pdf_status", "model", "last_attempt"),
             show="headings",
-            selectmode="browse",
+            selectmode="extended",
             height=6,
         )
         self.library_headings = {}
@@ -518,6 +518,13 @@ class PaperFlowApp(SyncPanel):
             "要約ノートを開く",
             lambda: self.open_library_file("note_path"),
             during_run=True,
+            side="right",
+            padx=8,
+        )
+        self.summary_button = self.button(
+            buttons,
+            "選択論文を再要約・版を比較",
+            self.open_summary_versions,
             side="right",
             padx=8,
         )
@@ -643,8 +650,9 @@ class PaperFlowApp(SyncPanel):
                 ),
                 tags=(row["group"] if row["in_source"] else "removed",),
             )
-        if selected and self.library_tree.exists(selected[0]):
-            self.library_tree.selection_set(selected[0])
+        retained = [identifier for identifier in selected if self.library_tree.exists(identifier)]
+        if retained:
+            self.library_tree.selection_set(retained)
         if focused and self.library_tree.exists(focused):
             self.library_tree.focus(focused)
         if yview:
@@ -679,11 +687,17 @@ class PaperFlowApp(SyncPanel):
         )
         text = "論文を選ぶと、書誌情報・失敗理由・保存された要約を表示します。"
         if row:
-            text = f"{row['title']}\n著者：{'; '.join(row['authors'])}\n年：{row['year'] or '不明'}　　状態：{row['status']}（{row['registration']}）\nPaperpile：{'存在' if row['in_source'] else '現在の書誌にない'}　　PDF：{row['pdf_status']}\nDOI：{row['doi'] or '—'}　　arXiv：{row['arxiv_id'] or '—'}\n最終解析：{row['provider'] or '—'} / {row['model'] or '—'}　　{self.display_time(row['last_attempt'])}"
+            analysis_label = "採用中の要約" if row["imported"] else "最終解析"
+            analysis_time = row["last_success"] if row["imported"] else row["last_attempt"]
+            text = f"{row['title']}\n著者：{'; '.join(row['authors'])}\n年：{row['year'] or '不明'}　　状態：{row['status']}（{row['registration']}）\nPaperpile：{'存在' if row['in_source'] else '現在の書誌にない'}　　PDF：{row['pdf_status']}\nDOI：{row['doi'] or '—'}　　arXiv：{row['arxiv_id'] or '—'}\n{analysis_label}：{row['provider'] or '—'} / {row['model'] or '—'}　　{self.display_time(analysis_time)}"
             if row["error"]:
                 text += "\n\n失敗・要確認の記録：\n" + row["error"]
             if row["summary"]:
-                text += "\n\n保存された要約（最終成功分）：\n" + row["summary"]
+                text += (
+                    "\n\n保存された要約（採用中の版）：\n" + row["summary"]
+                    if row["imported"]
+                    else "\n\n保存された要約（最終成功分）：\n" + row["summary"]
+                )
             if row["abstract"]:
                 text += "\n\n抄録：\n" + row["abstract"]
             if row["note_path"]:
@@ -730,6 +744,24 @@ class PaperFlowApp(SyncPanel):
             self.refresh_library(reconcile=True)
 
         self.submit("library_sync", service.sync_library, done)
+
+    def open_summary_versions(self):
+        from paperflow.gui_summaries import SummaryDialog
+
+        ids = list(self.library_tree.selection())
+        if not ids:
+            messagebox.showinfo(
+                "再要約",
+                "論文一覧で取り込み済みの論文を選んでください。Ctrl/Shiftで複数選択できます。",
+                parent=self.root,
+            )
+            return
+        if any(not self.library_by_id[p]["imported"] for p in ids):
+            messagebox.showinfo(
+                "再要約", "取り込み済みの論文だけを選んでください。", parent=self.root
+            )
+            return
+        self.summary_dialog = SummaryDialog(self, ids)
 
     def _build_history(self):
         top = ttk.Frame(self.history_tab)
@@ -1021,6 +1053,10 @@ class PaperFlowApp(SyncPanel):
                 "history": "履歴を読み込んでいます",
                 "settings": "設定を保存しています",
                 "library_sync": "Paperpileの書誌とPDFを同期しています",
+                "summary_generate": "選択した論文を再要約しています。正式版は保持しています",
+                "summary_adopt": "選択した要約版をObsidianの正式版へ切り替えています",
+                "summary_compare": "本文と図表の比較を準備しています",
+                "summary_history": "要約の版を読み込んでいます",
                 "cloud": "共有フォルダの進捗を確認しています",
                 "cloud_close": "共有フォルダへ保存してから終了します",
             }.get(action, "処理中")
@@ -1051,6 +1087,8 @@ class PaperFlowApp(SyncPanel):
                         self.close_when_idle = False
                         self.close()
                         return
+                    event[1](event[2])
+                elif kind == "summary_progress":
                     event[1](event[2])
                 elif kind == "error":
                     action = self.action

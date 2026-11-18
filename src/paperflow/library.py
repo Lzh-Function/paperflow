@@ -90,6 +90,7 @@ def snapshot(config, registry=None):
         if run["status"] == "success":
             success[run["paper_id"]] = run
     kind = "WikiSource" if config.destination.layout == "llm_wiki" else "Analysis"
+    runs_by_id = {run["run_id"]: run for run in runs}
     for exported in exports:
         exported["target_path"] = drive_path(exported["target_path"])
         if exported["export_kind"] == kind and Path(exported["target_path"]).is_relative_to(
@@ -111,6 +112,10 @@ def snapshot(config, registry=None):
             metadata, paper_id=identifier, pdf_sha256=hashes.get((identifier, match.get("path")))
         )
         exported = imported_rows.get(identifier)
+        active = runs_by_id.get(exported["source_analysis_run_id"]) if exported else None
+        if active and active["status"] == "success":
+            good = active
+        displayed = active or last
         in_vault = bool(registry and registry.contains(item))
         imported = bool(exported or in_vault)
         group, label = status(paper, match, last, good, imported, metadata)
@@ -145,8 +150,8 @@ def snapshot(config, registry=None):
             note_path=note,
             error=error,
             error_type=paper["error_type"] or (last["error_type"] if last else ""),
-            provider=last["provider"] if last else "",
-            model=(last["model"] or "") if last else "",
+            provider=displayed["provider"] if displayed else "",
+            model=(displayed["model"] or "") if displayed else "",
             last_attempt=(last["ended_at"] or last["started_at"]) if last else "",
             last_success=good["ended_at"] if good else "",
             last_sync=paper["bib_last_seen"] or "",

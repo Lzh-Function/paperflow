@@ -330,10 +330,10 @@ def test_old_database_migration_is_readonly_until_write(tmp_path):
         assert store.db.execute("PRAGMA user_version").fetchone()[0] == 1
     assert db.read_bytes() == before
     with Store(db, snapshot=True) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
     assert db.read_bytes() == before
     with Store(db) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_all_selects_remaining_and_runs_across_chunks(batch_config):

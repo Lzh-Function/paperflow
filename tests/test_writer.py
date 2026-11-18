@@ -94,3 +94,29 @@ def test_vault_marker_permission_and_wiki_lock(small_config):
     lock.write_text("host: another-device", encoding="utf-8")
     with pytest.raises(WriteConflict):
         writer.write("Analysis/a.md", TEXT)
+
+
+def test_windows_reader_sharing_violation_retries_only_the_atomic_replace(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from paperflow.wiki import bundle
+
+    if os.name != "nt":
+        pytest.skip("Windowsの読み取り共有競合")
+    path = tmp_path / "progress.json"
+    path.write_text('{"before": true}', encoding="utf-8")
+    replace, calls = os.replace, []
+
+    def reading(source, destination):
+        calls.append(destination)
+        if len(calls) == 1:
+            raise PermissionError("合成の読み取り共有競合")
+        return replace(source, destination)
+
+    monkeypatch.setattr(bundle.os, "replace", reading)
+    bundle.json_write(path, dict(after=True))
+    assert len(calls) == 2
+    assert '"after": true' in path.read_text(encoding="utf-8")
+    assert not list(tmp_path.glob(".paperflow-journal-*"))

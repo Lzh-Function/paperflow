@@ -362,6 +362,29 @@ def prepare(config, items, bundle, *, upgrade=False):
         text, proposal = render(
             item, sid, note_path, proposal_path, payload["blocks"], candidates[:10], visuals
         )
+        version = item.get("summary_version")
+        if version:
+            if version["note_path"] != note_path or version["source_id"] != sid:
+                raise WriteConflict("要約履歴の出典・保存先が正式ノートと一致しません")
+            text, proposal = version["note_text"], version["proposal_text"]
+            for asset in json.loads(version["visuals_json"])["assets"]:
+                live = target(root, asset["path"])
+                if live.is_file():
+                    if sha(live) != asset["sha256"]:
+                        raise WriteConflict("要約履歴の図表が変更されています")
+                    frozen_guards[asset["path"]] = asset["sha256"]
+                else:
+                    from paperflow.summary_versions import asset_path
+
+                    source = asset_path(config, version["run_id"], asset)
+                    if not source.is_file() or sha(source) != asset["sha256"]:
+                        raise WriteConflict(
+                            "要約履歴の図表が未取得です。比較画面を更新してください"
+                        )
+                    destination = target(stage, asset["path"])
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, destination)
+                    derived_assets.append(asset["path"])
         managed = {}
         if not existing or (old and note_path in old["managed"]):
             p = target(stage, note_path)

@@ -27,6 +27,7 @@ TABLES = (
     "analysis_usage",
     "portable_analyses",
     "analysis_aliases",
+    "summary_versions",
 )
 MAX_PACKED = 32 * 1024 * 1024
 MAX_RAW = 128 * 1024 * 1024
@@ -165,7 +166,8 @@ def capture(cfg):
                             )
                             known.add(run["run_id"])
         plans.append(dict(plan=data, progress=progress))
-    return dict(version=1, profile=profile(cfg), tables=tables, batches=plans)
+    # 新しい要約履歴を古いアプリが黙って破棄しないよう形式を更新する。
+    return dict(version=2, profile=profile(cfg), tables=tables, batches=plans)
 
 
 def packed(data):
@@ -191,9 +193,11 @@ def unpack(blob, checksum):
     if (
         not isinstance(data, dict)
         or set(data) != {"version", "profile", "tables", "batches"}
-        or data["version"] != 1
+        or data["version"] not in (1, 2)
     ):
         raise ValueError("未対応の共有進捗です")
+    if data["version"] == 1 and isinstance(data["tables"], dict):
+        data["tables"].setdefault("summary_versions", [])
     if not isinstance(data["tables"], dict) or set(data["tables"]) != set(TABLES):
         raise ValueError("共有DBの形式が不正です")
     with Store(Path("unused"), snapshot=True) as schema:
@@ -213,6 +217,13 @@ def unpack(blob, checksum):
 
             output = json.loads(row["output_json"])
             jsonschema.validate(output, VISUAL_SCHEMA if "visual_review" in output else SCHEMA)
+    from paperflow.summary_versions import validate_version
+
+    runs = {r["run_id"]: r for r in data["tables"]["analysis_runs"]}
+    for version in data["tables"]["summary_versions"]:
+        if version["run_id"] not in runs:
+            raise ValueError("要約版の解析がありません")
+        validate_version(version, runs[version["run_id"]])
     return data
 
 

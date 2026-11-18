@@ -229,6 +229,67 @@ class GuiService:
             if cloud.enabled:
                 cloud.end()
 
+    def summary_history(self, paper_id):
+        from paperflow.summary_versions import history
+
+        return history(self.config(), paper_id)
+
+    def generate_summaries(self, paper_ids, provider, model, on_progress=None):
+        from paperflow.summary_versions import generate
+
+        cfg = self.config(provider, model)
+        # 再要約のモデルはこのジョブだけの指定。通常バッチの共有設定を変更しない。
+        cloud = self.cloud(self.config())
+        if cloud.enabled:
+            cloud.begin()
+        self.stop_event.clear()
+        try:
+            return generate(
+                cfg,
+                paper_ids,
+                checkpoint=cloud.checkpoint if cloud.enabled else None,
+                should_stop=self.stop_event.is_set,
+                on_progress=on_progress,
+            )
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
+    def adopt_summary(self, paper_id, run_id):
+        from paperflow.summary_versions import adopt
+
+        cfg = self.config()
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        try:
+            result = adopt(
+                cfg, paper_id, run_id, checkpoint=cloud.checkpoint if cloud.enabled else None
+            )
+            self._registry_attempted = False
+            return result
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
+    def compare_summary(self, paper_id, run_id):
+        from paperflow.summary_versions import comparison
+
+        return comparison(self.config(), paper_id, run_id)
+
+    def recover_summaries(self, paper_id):
+        from paperflow.summary_versions import recover
+
+        cfg = self.config()
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        try:
+            return recover(cfg, paper_id, checkpoint=cloud.checkpoint if cloud.enabled else None)
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
     def progress_sync(self):
         cloud = self.cloud()
         return cloud.sync(publish=cloud.confirmed)

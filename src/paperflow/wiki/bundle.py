@@ -7,6 +7,7 @@ import re
 import shutil
 import socket
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -120,9 +121,21 @@ def json_write(path, data):
             stream.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        replace_file(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
+
+
+def replace_file(source, destination):
+    # Windowsでは別スレッドの短いread_text中も置換が拒否される。送信や解析は再試行しない。
+    for attempt in range(6):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == 5:
+                raise
+            time.sleep(min(0.02 * 2**attempt, 0.2))
 
 
 @contextmanager
@@ -163,7 +176,7 @@ def atomic_copy(source, dest, *, replace):
             out.flush()
             os.fsync(out.fileno())
         if replace:
-            os.replace(temporary, dest)
+            replace_file(temporary, dest)
         elif os.name == "nt":
             os.rename(temporary, dest)
         else:
@@ -244,6 +257,14 @@ def allowed_write(relative):
             "Hobby.md",
         }
     if relative.startswith("10_Papers/10_Sources/"):
+        if (
+            len(parts) == 6
+            and parts[3] == "figures"
+            and re.fullmatch(r"pfv-[a-f0-9]{16}", parts[4])
+        ):
+            return parts[-1] == "visuals.json" or bool(
+                re.fullmatch(r"(?:figure|table|page)-\d+-p\d+\.png", parts[-1])
+            )
         if len(parts) == 6 and parts[3:5] == ("figures", "paperflow-visuals-v1"):
             return parts[-1] == "visuals.json" or bool(
                 re.fullmatch(r"(?:figure|table|page)-\d+-p\d+\.png", parts[-1])

@@ -1,5 +1,7 @@
 # PaperFlow — Windows Native Paperpile → Obsidian Research Ingestion
 
+> **2026-11-18の要約版管理追補:** 通常バッチの登録済み除外を保持し、GUIの論文一覧で明示選択した論文だけを、ジョブ単位のProvider/モデルで再要約できる。本文・選択図表・解析来歴を版ごとに保持し、候補生成と正式版への切り替えを分離する。手動編集・Wiki統合済み出典は自動上書きしない。保存済み回答の再送なし復旧と、版履歴のPC間同期を提供する。詳細は [要約の版管理](summary-versions.md)。
+
 > **2026-11-18の仕様追補:** PC間同期はGoogle Driveデスクトップ版が配送する専用共有フォルダを使う。独自Drive API・OAuthは使用しない。論理DB・解析JSON・固定バッチを共有し、起動時受信・論文ごとの保存・共有フォルダへ保存して終了をGUIで提供する。起動後は利用者がDrive同期完了を確認するまでAI/Vault/共有先への書き込みを許可しない。クラウドの最新状態・送信完了は自動判定しない。詳細は [PC間同期](multi-pc-sync.md)。管理主題語は従来の`topics`に加え、Obsidianの`tags`へ`topic/<slug>`として併記する。
 
 > **2026-11-17の仕様追補（利用者決定）:** PaperFlowを正規論文入口とし、G:原本を変更せずVaultへPDFを凍結コピーする。正式Source Noteまで自動化し、50_Wikiへの変更はレビュー用提案で止める。Vault側Paperスキル・検証・排他・Schemaをこのフローへ適合する。`destination.layout: llm_wiki` / `copy_pdf: true` を採用し、以下の旧 `copy_pdf: false`・独立 `PaperFlow/` 出力の制約をこのモードで置き換える。詳細は [Wiki統合](wiki-integration.md)。初回本番反映はC:検証と具体的差分の提示後に承認を確認する。

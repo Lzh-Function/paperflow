@@ -53,7 +53,17 @@ def locator_reference(value):
     return "、".join(dict.fromkeys(positions)) or "詳細位置は保存済み解析JSONを参照"
 
 
-def render(item, source_id, note_path, proposal_path, blocks, candidates, visuals=None):
+def render(
+    item,
+    source_id,
+    note_path,
+    proposal_path,
+    blocks,
+    candidates,
+    visuals=None,
+    *,
+    visual_subdir="figures/paperflow-visuals-v1",
+):
     paper, meta, run = item["paper"], item["metadata"], item["analysis"]
     data = run["data"]
     date = run["started_at"][:10]
@@ -105,15 +115,15 @@ def render(item, source_id, note_path, proposal_path, blocks, candidates, visual
                 else:
                     text += "## 主要な図表\n\n原図の自動切り抜きです。見え方と内容の照合は未実施で、図表の添付だけで根拠を検証済みとは扱いません。\n\n"
                 for visual in visuals:
-                    image = f"{source_dir}/figures/paperflow-visuals-v1/{visual['file']}"
+                    image = f"{source_dir}/{visual_subdir}/{visual['file']}"
                     mode = (
                         "原図の切り抜き"
                         if visual["mode"] == "crop"
                         else "境界を確定できないため原ページを表示"
                     )
                     selection = visual.get("selection")
-                    title = escape(selection["title_ja"]) if selection else visual["label"]
-                    text += f"### {title} — PDF {visual['page']}ページ\n\n![[{image}|700]]\n\n{mode}。[[{source_dir}/source.pdf#page={visual['page']}|PDFで確認]]\n\n"
+                    visual_title = escape(selection["title_ja"]) if selection else visual["label"]
+                    text += f"### {visual_title} — PDF {visual['page']}ページ\n\n![[{image}|700]]\n\n{mode}。[[{source_dir}/source.pdf#page={visual['page']}|PDFで確認]]\n\n"
                     if selection:
                         text += escape(selection["explanation_ja"]) + "\n\n"
                         if selection["finding_indices"]:

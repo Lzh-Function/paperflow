@@ -56,7 +56,14 @@ CREATE TABLE IF NOT EXISTS analysis_aliases (
  run_id TEXT NOT NULL REFERENCES analysis_runs(run_id), source_hash TEXT NOT NULL,
  PRIMARY KEY(run_id,source_hash)
 );
-PRAGMA user_version=3;
+CREATE TABLE IF NOT EXISTS summary_versions (
+ run_id TEXT PRIMARY KEY REFERENCES analysis_runs(run_id),
+ paper_id TEXT NOT NULL REFERENCES papers(paper_id), pdf_sha256 TEXT NOT NULL,
+ source_id TEXT NOT NULL, note_path TEXT NOT NULL, note_text TEXT NOT NULL,
+ proposal_text TEXT NOT NULL, metadata_json TEXT NOT NULL, visuals_json TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+PRAGMA user_version=4;
 """
 
 
@@ -89,14 +96,14 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 3:
+        if version > 4:
             raise ValueError("このDBは新しいPaperFlowで作成されています")
         if version == 0 and (snapshot or not path.exists() or not readonly):
             self.db.executescript(DDL)
         elif version == 0 and readonly:
             # Only the in-memory empty status view needs schema creation.
             self.db.executescript(DDL)
-        elif version in (1, 2) and (snapshot or not readonly):
+        elif version in (1, 2, 3) and (snapshot or not readonly):
             self.db.executescript(DDL)
 
     def __enter__(self):
