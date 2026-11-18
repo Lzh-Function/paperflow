@@ -30,9 +30,9 @@
 | OS | Windows 11、Windowsネイティブで開発・稼働 |
 | 文献取り込み | Chrome + 既存Paperpile拡張機能（変更しない） |
 | 大学Google Drive | `G:` ドライブ |
-| PaperpileのPDF保管ルート | `G:\マイドライブ\Paperpile`（現時点のユーザー申告。子フォルダは実機で検査） |
+| PaperpileのPDF保管ルート | `G:\My Drive\Paperpile`（現時点のユーザー申告。子フォルダは実機で検査） |
 | 個人Google Drive | `H:` ドライブ |
-| Obsidian Vault | `H:\マイドライブ\LLM-Wiki`（既存Vault） |
+| Obsidian Vault | `H:\My Drive\LLM-Wiki`（既存Vault） |
 | Pythonソースコード | `C:\workspace\paperflow`（**提案**。変更可能） |
 | キャッシュ・DB | `C:\workspace\paperflow\.data`、Git管理対象外 |
 | LLM解析 | `claude` / `codex` の両公式CLIを切替可能 |
@@ -41,7 +41,7 @@
 | PDFの個人Driveへのコピー | デフォルト禁止 (`copy_pdf: false`) |
 | WSL2 / Docker / GDrive API | MVPに不要 |
 
-**重要:** `G:` と `H:` が両方マウント済みであること以外、実際のファイル名・BibTeX出力先・Driveオフライン状態・Claude/Codexのインストール状態は未確認である。`doctor`で実測する。`G:\マイドライブ\Paperpile`にBibTeXが置かれていると**仮定しない**。
+**重要:** `G:` と `H:` が両方マウント済みであること以外、実際のファイル名・BibTeX出力先・Driveオフライン状態・Claude/Codexのインストール状態は未確認である。`doctor`で実測する。`G:\My Drive\Paperpile`にBibTeXが置かれていると**仮定しない**。
 
 ### 1.1 最終的な利用体験
 
@@ -83,7 +83,7 @@
 ```text
 Chrome + Paperpile
        |
-       +--> Google Drive (大学) G:\マイドライブ\Paperpile\...
+       +--> Google Drive (大学) G:\My Drive\Paperpile\...
        |                                      | PDF (read-only)
        +--> Paperpile automatic BibTeX export +----> *.bib (read-only)
                                                        |
@@ -103,7 +103,7 @@ Chrome + Paperpile
                                                        |
                                        Obsidian renderer + safe writer
                                                        |
-                            H:\マイドライブ\LLM-Wiki\PaperFlow\...
+                            H:\My Drive\LLM-Wiki\PaperFlow\...
 ```
 
 **権限境界:** 文献収集と書誌解釈は決定論的Pythonコード、言語的解釈だけをLLMに委譲する。**LLMから受け取った結果にファイルパス・コマンドを実行させない**。PDF本文中の命令文は必ず「非信頼入力」とする。
@@ -248,10 +248,10 @@ class AgentProvider(Protocol):
 
 ## 8. 出力：既存のObsidian Vaultを壊さない
 
-専用名前空間は`H:\マイドライブ\LLM-Wiki\PaperFlow`。
+専用名前空間は`H:\My Drive\LLM-Wiki\PaperFlow`。
 
 ```text
-H:\マイドライブ\LLM-Wiki\
+H:\My Drive\LLM-Wiki\
   PaperFlow\
     Papers\
       <paper_id>.md          # 初回生成・ユーザー編集可。既存は原則上書きしない
@@ -363,13 +363,13 @@ paperflow watch --interval 300
 
 ```yaml
 source:
-  paperpile_dir: 'G:\マイドライブ\Paperpile'
+  paperpile_dir: 'G:\My Drive\Paperpile'
   bibtex_file: null  # Paperpileの自動BibTeX出力先を初期設定時に指定する
   recurse: true
   read_only: true
 
 destination:
-  vault_dir: 'H:\マイドライブ\LLM-Wiki'
+  vault_dir: 'H:\My Drive\LLM-Wiki'
   namespace: PaperFlow
   copy_pdf: false
 

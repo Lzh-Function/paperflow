@@ -14,6 +14,7 @@ import yaml
 
 from paperflow.agents.schema import PROMPT, VISUAL_PROMPT, VISUAL_SCHEMA
 from paperflow.config import SettingsError
+from paperflow.drive_paths import drive_path, same_binding
 from paperflow.ingestion.bibtex_reader import identity_key, normalize_doi
 from paperflow.models import Bibliography, digest
 from paperflow.obsidian.writer import SafeWriter, WriteConflict, local_lock
@@ -290,7 +291,7 @@ def load(config, path):
     if (
         data.get("type") != "paperflow-batch"
         or data.get("version") != 1
-        or data.get("binding") != binding(config)
+        or not same_binding(data.get("binding"), binding(config))
     ):
         raise SettingsError("別のVault・DB・原本用、または未対応のバッチ計画です")
     items = data.get("items")
@@ -310,6 +311,7 @@ def load(config, path):
     ) != len(items):
         raise SettingsError("バッチ対象が重複しています")
     for p in items:
+        p["pdf"] = str(Path(drive_path(p["pdf"])).resolve())
         if (
             not isinstance(p.get("paper_id"), str)
             or not isinstance(p.get("bib_hash"), str)

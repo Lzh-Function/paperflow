@@ -1030,6 +1030,11 @@ class PaperFlowApp(SyncPanel):
             try:
                 self.events.put(("done", done, job()))
             except BaseException as exc:
+                if action.startswith("cloud"):
+                    try:
+                        self.service.record_sync_error(str(exc))
+                    except (OSError, ValueError):
+                        pass
                 self.events.put(("error", str(exc), type(exc).__name__))
 
         self.executor.submit(worker)

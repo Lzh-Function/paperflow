@@ -25,6 +25,11 @@ class SyncPanel:
             or str(self.cfg.destination.vault_dir.parent / "PaperFlow-Sync")
         )
         self.drive_checked = tk.BooleanVar(value=False)
+        self._cloud_seen_service = None
+        self._cloud_seen_binding = None
+        self.cloud_result = tk.StringVar(
+            value="フォルダの選択だけでは保存されません。初回は「最初のPC：共有を新規作成」を押してください。"
+        )
         self.cloud_paths = {}
         ttk.Label(frame, text="PC間同期", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
@@ -68,7 +73,7 @@ class SyncPanel:
         )
         ttk.Label(
             frame,
-            text="両PCのGoogle Driveデスクトップ版で同じフォルダを使います。例：H:\\マイドライブ\\PaperFlow-Sync\nPaperpile・Vault・C:の作業データとは分離してください。Google CloudやOAuthの設定は不要です。",
+            text="両PCのGoogle Driveデスクトップ版で同じフォルダを使います。例：H:\\My Drive\\PaperFlow-Sync\nPaperpile・Vault・C:の作業データとは分離してください。Google CloudやOAuthの設定は不要です。",
             wraplength=990,
         ).pack(anchor="w")
         row = ttk.Frame(frame)
@@ -88,6 +93,7 @@ class SyncPanel:
         )
         self.button(row, "最初のPC：共有を新規作成", self.cloud_create, side="left", padx=8)
         self.button(row, "2台目：既存の共有を引き継ぐ", self.cloud_join, side="left")
+        ttk.Label(frame, textvariable=self.cloud_result, wraplength=990).pack(anchor="w", pady=6)
         ttk.Label(
             frame, text="3. PCを切り替えたら、Driveの同期完了を確認", style="Heading.TLabel"
         ).pack(anchor="w", pady=(16, 6))
@@ -134,8 +140,12 @@ class SyncPanel:
     def cloud_refresh(self, result=None):
         cloud = self.service.cloud()
         state = cloud.status()
-        if not cloud.confirmed:
+        binding = self.service._sync_binding(self.service.config())
+        if not cloud.confirmed and (
+            self._cloud_seen_service is not self.service or self._cloud_seen_binding != binding
+        ):
             self.drive_checked.set(False)
+        self._cloud_seen_service, self._cloud_seen_binding = self.service, binding
         if not state.get("enabled"):
             text = "未設定。このPCだけで取り込みを使用できます。"
         elif state.get("transport") != "folder":
@@ -160,6 +170,9 @@ class SyncPanel:
             text += "　受信世代：" + str(state.get("head") or "未保存")[:12]
         if isinstance(result, str):
             text += "\n" + result
+        error = self.service.sync_error()
+        if error:
+            self.cloud_result.set("前回停止した理由：" + error["message"])
         self.cloud_status.set(text)
 
     def cloud_done(self, result=None):
@@ -168,6 +181,9 @@ class SyncPanel:
         self._load_selection()
         self.reset_library()
         self.cloud_refresh(result)
+        if isinstance(result, dict) and result.get("message"):
+            self.cloud_result.set(result["message"])
+            self.drive_checked.set(bool(result.get("confirmed")))
         self.refresh_history()
 
     def cloud_browse(self, name):
@@ -236,6 +252,11 @@ class SyncPanel:
         if value:
             self.cloud_folder.set(value)
             self.drive_checked.set(False)
+            self.cloud_result.set(
+                "選択中："
+                + value
+                + "\nまだ保存していません。初回は「最初のPC：共有を新規作成」を押してください。"
+            )
 
     def _drive_confirmed(self):
         if not self.drive_checked.get():
@@ -248,27 +269,20 @@ class SyncPanel:
         return True
 
     def cloud_create(self):
-        if not self._drive_confirmed():
-            return
         folder, name = self.cloud_folder.get().strip(), self.cloud_name.get().strip()
         if not messagebox.askyesno(
             "共有進捗の作成",
-            "選択した空の専用フォルダへ、このPCの文献DB・解析JSON・バッチ履歴を保存します。\nPDF・認証情報・稼働中のSQLiteはコピーしません。開始しますか？",
+            "このPCのDrive同期が完了していることを確認してください。\n次の専用フォルダへ文献DB・解析JSON・バッチ履歴を作成します：\n"
+            + folder
+            + "\n\n初回は手順3のチェック操作は不要です。この確認後に保存を開始します。\nPDF・認証情報・稼働中のSQLiteはコピーしません。開始しますか？",
             parent=self.root,
         ):
             return
 
-        def create():
-            cfg = self.service.config()
-            if ProgressSync(cfg).enabled:
-                raise SyncError("先にこのPCの同期を解除してください")
-            transport = FolderTransport(cfg, folder)
-            workspace = transport.create_workspace(name)
-            result = ProgressSync(cfg, transport, confirmed=True).connect(workspace, create=True)
-            self.service._sync_confirmation = self.service._sync_binding(cfg)
-            return result
-
-        self.submit("cloud", create, self.cloud_done)
+        self.cloud_result.set("共有データを準備しています：" + folder)
+        self.submit(
+            "cloud", lambda: self.service.create_progress_folder(folder, name), self.cloud_done
+        )
 
     def cloud_uncheck(self):
         if not self.drive_checked.get():

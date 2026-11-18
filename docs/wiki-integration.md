@@ -27,7 +27,7 @@ Source Noteは `type: paper-note`、`source_id: paper:...`、登録済み `sourc
 
 ```yaml
 destination:
-  vault_dir: 'H:\マイドライブ\LLM-Wiki'
+  vault_dir: 'H:\My Drive\LLM-Wiki'
   layout: llm_wiki
   copy_pdf: true
   allow_vault_write: false

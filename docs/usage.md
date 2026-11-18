@@ -104,7 +104,7 @@ C:\Users\TAKUH\Documents\paperflow\.data\batches
 現在の保存先:
 
 ```text
-H:\マイドライブ\LLM-Wiki\10_Papers\20_Source_Notes
+H:\My Drive\LLM-Wiki\10_Papers\20_Source_Notes
 ```
 
 既存Wikiへの追記は統合提案として保存する。`50_Wiki`の本文へ自動で追記はしない。

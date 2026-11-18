@@ -37,7 +37,8 @@ def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monk
     from paperflow.gui import PaperFlowApp
     from paperflow.gui_service import GuiService
 
-    monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *a, **k: True)
+    approve = [False]
+    monkeypatch.setattr("tkinter.messagebox.askyesno", lambda *a, **k: approve[0])
     monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *a, **k: None)
     monkeypatch.setattr(
         "urllib.request.urlopen", lambda *a, **k: pytest.fail("Google APIへ通信しない")
@@ -60,15 +61,19 @@ def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monk
         app.tabs.select(app.cloud_tab)
         app.cloud_folder.set(str(tmp_path / "shared"))
         app.cloud_create()
-        assert not app.busy  # 未確認なら共有フォルダを作成しない。
+        assert not app.busy  # 作成ダイアログで拒否すれば共有先へ書き込まない。
         assert not (tmp_path / "shared").exists()
-        app.drive_checked.set(True)
+        approve[0] = True  # 初回は作成ダイアログの確認だけでよい。
         app.cloud_create()
         pump(lambda: not app.busy)
         assert not errors
         assert settings(app.service.config())["enabled"]
         assert "共有フォルダ" in app.cloud_status.get()
         assert "取り込み可能" in app.cloud_status.get()
+        assert app.drive_checked.get()
+        assert "共有データを作成しました" in app.cloud_result.get()
+        assert (tmp_path / "shared/paperflow-workspace.json").is_file()
+        assert list((tmp_path / "shared/objects").glob("*.gz"))
         assert not GuiService(app.service.path).progress_confirmed()
         app.drive_checked.set(False)
         app.cloud_uncheck()

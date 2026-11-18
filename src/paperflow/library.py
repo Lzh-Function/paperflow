@@ -5,6 +5,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
+from paperflow.drive_paths import drive_path
 from paperflow.store import Store, now
 
 FILTERS = {
@@ -90,17 +91,21 @@ def snapshot(config, registry=None):
             success[run["paper_id"]] = run
     kind = "WikiSource" if config.destination.layout == "llm_wiki" else "Analysis"
     for exported in exports:
+        exported["target_path"] = drive_path(exported["target_path"])
         if exported["export_kind"] == kind and Path(exported["target_path"]).is_relative_to(
             config.destination.vault_dir
         ):
             imported_rows[exported["paper_id"]] = exported
     for attachment in attachments:
-        hashes[(attachment["paper_id"], attachment["source_path"])] = attachment["sha256"]
+        key = (attachment["paper_id"], drive_path(attachment["source_path"]))
+        hashes[key] = attachment["sha256"] or hashes.get(key)
     rows = []
     for paper in papers:
         identifier = paper["paper_id"]
         metadata = decode(paper["metadata_json"], {})
         match = decode(paper["match_json"], {})
+        if match.get("path"):
+            match["path"] = drive_path(match["path"])
         last, good = latest.get(identifier), success.get(identifier)
         item = dict(
             metadata, paper_id=identifier, pdf_sha256=hashes.get((identifier, match.get("path")))

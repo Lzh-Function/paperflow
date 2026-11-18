@@ -113,7 +113,7 @@ LLM-Wikiを開き、ファイル一覧の次のフォルダへ進む。
 Windowsの保存先:
 
 ```text
-H:\マイドライブ\LLM-Wiki\10_Papers\20_Source_Notes
+H:\My Drive\LLM-Wiki\10_Papers\20_Source_Notes
 ```
 
 ## 6. 消費量を確認する

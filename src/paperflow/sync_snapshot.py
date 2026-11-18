@@ -11,6 +11,7 @@ import sqlite3
 import uuid
 from pathlib import Path, PurePosixPath
 
+from paperflow.drive_paths import relative_path, same_binding
 from paperflow.models import digest
 from paperflow.portable import bib_key, profile
 from paperflow.store import Store
@@ -32,10 +33,7 @@ MAX_RAW = 128 * 1024 * 1024
 
 
 def relative(path, root):
-    p = Path(path).resolve()
-    if not p.is_relative_to(root.resolve()):
-        raise ValueError("共有データに原本/Vault外のパスがあります")
-    return p.relative_to(root.resolve()).as_posix()
+    return relative_path(path, root)
 
 
 def local(root, name):
@@ -75,6 +73,13 @@ def capture(cfg):
     for row in tables["attachments"]:
         row["source_path"] = relative(row["source_path"], cfg.source.paperpile_dir)
         row["mtime_ns"] = None
+    # 表示名変更前後のスキャンで同じPDF対応が2行ある場合、受信先のUNIQUEを守る。
+    attachments = {}
+    for row in tables["attachments"]:
+        key = (row["paper_id"], row["source_path"])
+        if key not in attachments or row["sha256"]:
+            attachments[key] = row
+    tables["attachments"] = list(attachments.values())
     for row in tables["analysis_runs"]:
         row["output_json_path"] = None
     for row in tables["exports"]:
@@ -91,8 +96,8 @@ def capture(cfg):
     paper_meta = {r["paper_id"]: json.loads(r["metadata_json"]) for r in tables["papers"]}
     for path in sorted((cfg.storage.data_dir / "batches").glob("*.plan.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("binding") != __import__("paperflow.batches", fromlist=["binding"]).binding(
-            cfg
+        if not same_binding(
+            data.get("binding"), __import__("paperflow.batches", fromlist=["binding"]).binding(cfg)
         ):
             continue
         data.pop("binding")

@@ -18,10 +18,10 @@
 source:
   # PaperpileのPDF原本が入っているフォルダ。Windowsのフルパスを指定する。
   # このPCではG:のPaperpile。PaperFlowはここを読み取り、原本を変更しない。
-  paperpile_dir: 'G:\マイドライブ\Paperpile'
+  paperpile_dir: 'G:\My Drive\Paperpile'
 
   # Paperpileが自動出力するBibTeX（.bib）のフルパス。PDFと論文のタイトル等を照合する。
-  # このPCの保存先は 'G:\マイドライブ\paperpile.bib'。nullは未設定で、PDF候補の検出だけになる。
+  # このPCの保存先は 'G:\My Drive\paperpile.bib'。nullは未設定で、PDF候補の検出だけになる。
   bibtex_file: null
 
   # true: Paperpileフォルダ内のサブフォルダも探す。false: 指定フォルダ直下だけ探す。
@@ -35,8 +35,8 @@ source:
 # 出力先。Obsidianへ何をどの形式で保存するか。
 destination:
   # 要約を保存するObsidian Vaultのルートフォルダ。10_Papers等がある場所を指定する。
-  # このPCでは 'H:\マイドライブ\LLM-Wiki'。Paperpile原本とは別の場所にする。
-  vault_dir: 'H:\マイドライブ\LLM-Wiki'
+  # このPCでは 'H:\My Drive\LLM-Wiki'。Paperpile原本とは別の場所にする。
+  vault_dir: 'H:\My Drive\LLM-Wiki'
 
   # 従来形式（layout: paperflow）で使う出力名。対応値はPaperFlowのみなので変更不要。
   # 正式Wiki形式（llm_wiki）の保存先フォルダ名を変える項目ではない。

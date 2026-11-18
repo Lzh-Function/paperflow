@@ -8,6 +8,7 @@ from paperflow import batches, library
 from paperflow.agents.catalog import model_id
 from paperflow.config import SettingsError, load_config
 from paperflow.model_selection import cached_catalog, get_catalog, preferences, remember
+from paperflow.obsidian.writer import local_lock
 from paperflow.pipeline import Pipeline
 from paperflow.progress_sync import ProgressSync
 
@@ -52,6 +53,64 @@ class GuiService:
         result = cloud.sync()
         self._sync_confirmation = self._sync_binding(cfg)
         return result
+
+    def create_progress_folder(self, folder, name):
+        from paperflow.drive_paths import drive_path
+        from paperflow.folder_sync import FolderTransport
+        from paperflow.progress_sync import SyncError, settings
+        from paperflow.sync_snapshot import capture, packed
+
+        cfg = self.config()
+        transport = FolderTransport(cfg, folder)
+        with local_lock(cfg.storage.data_dir):
+            state = settings(cfg)
+            if state.get("enabled"):
+                if (
+                    state.get("head")
+                    or not state.get("shared_folder")
+                    or Path(drive_path(state["shared_folder"])).resolve() != transport.root
+                ):
+                    raise SyncError(
+                        "共有は設定済みです。「共有ファイルを受信・更新」を使ってください。別の共有先に変える場合は先に解除してください"
+                    )
+                cloud = ProgressSync(cfg, transport, confirmed=True)
+                result = cloud.sync(_lock_held=True)
+            else:
+                # 原本/Vaultへの参照と容量を先に検証し、失敗時に空の共有だけを残さない。
+                packed(capture(cfg))
+                workspace = transport.create_workspace(name)
+                result = ProgressSync(cfg, transport, confirmed=True).connect(
+                    workspace, create=True, _lock_held=True
+                )
+        self._sync_confirmation = self._sync_binding(cfg)
+        self.clear_sync_error()
+        return dict(
+            result,
+            message="共有データを作成しました："
+            + str(transport.root)
+            + "\n生成済み：paperflow-workspace.json / commits / objects。Driveへの送信完了はDriveアプリで確認してください。",
+        )
+
+    def record_sync_error(self, message):
+        from paperflow.progress_sync import directory
+        from paperflow.store import now
+        from paperflow.wiki.bundle import json_write
+
+        json_write(directory(self.config()) / "last-error.json", dict(at=now(), message=message))
+
+    def sync_error(self):
+        from paperflow.progress_sync import directory
+
+        path = directory(self.config()) / "last-error.json"
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        except (OSError, ValueError):
+            return None
+
+    def clear_sync_error(self):
+        from paperflow.progress_sync import directory
+
+        (directory(self.config()) / "last-error.json").unlink(missing_ok=True)
 
     def config(self, provider=None, model=None):
         cfg = load_config(self.path)

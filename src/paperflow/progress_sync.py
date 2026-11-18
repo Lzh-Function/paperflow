@@ -6,6 +6,7 @@ import socket
 import uuid
 from contextlib import nullcontext
 
+from paperflow.drive_paths import drive_path
 from paperflow.models import digest
 from paperflow.obsidian.writer import local_lock
 from paperflow.portable import profile
@@ -37,6 +38,8 @@ def settings(cfg):
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("version") != 1:
         raise SyncError("この同期設定は新しいPaperFlowで作られています")
+    if data.get("shared_folder"):
+        data["shared_folder"] = drive_path(data["shared_folder"])
     return data
 
 
@@ -142,9 +145,9 @@ class ProgressSync:
         self.local["updated_at"] = now()
         save_settings(self.cfg, self.local)
 
-    def connect(self, workspace, *, create=False):
+    def connect(self, workspace, *, create=False, _lock_held=False):
         """GUIから選択/作成した専用領域だけを有効化する。"""
-        with local_lock(self.cfg.storage.data_dir):
+        with nullcontext() if _lock_held else local_lock(self.cfg.storage.data_dir):
             if self.enabled and self.local.get("workspace_id") != workspace["workspace_id"]:
                 raise SyncError("共有先の変更は現在の同期を解除してから行ってください")
             self.local.update(
