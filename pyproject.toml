@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paperflow"
+version = "0.1.0"
+description = "WindowsネイティブのPaperpile論文取り込みGUI・CLI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "bibtexparser==1.4.3", "pyparsing==3.2.3", "click>=8.1,<9", "pydantic>=2.10,<3",
+  "PyYAML>=6.0,<7", "jsonschema>=4.23,<5", "PyMuPDF>=1.26,<2",
+]
+
+[project.scripts]
+paperflow = "paperflow.cli:main"
+
+[project.gui-scripts]
+paperflow-gui = "paperflow.gui:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paperflow"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]

@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tldr_ja": {
+      "type": "string"
+    },
+    "research_question_ja": {
+      "type": "string"
+    },
+    "approach_ja": {
+      "type": "string"
+    },
+    "research_relevance_ja": {
+      "type": "string"
+    },
+    "priority_reason_ja": {
+      "type": "string"
+    },
+    "key_findings_ja": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "limitations_ja": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tag_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uncertainties_ja": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "coverage": {
+      "type": "string",
+      "enum": [
+        "fulltext",
+        "partial",
+        "abstract"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "locator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "claim",
+          "page",
+          "locator"
+        ]
+      }
+    }
+  },
+  "required": [
+    "tldr_ja",
+    "research_question_ja",
+    "approach_ja",
+    "research_relevance_ja",
+    "priority_reason_ja",
+    "key_findings_ja",
+    "limitations_ja",
+    "tags",
+    "tag_suggestions",
+    "uncertainties_ja",
+    "priority",
+    "coverage",
+    "evidence"
+  ]
+}

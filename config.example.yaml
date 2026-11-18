@@ -1,0 +1,201 @@
+# PaperFlowの設定（Windows用）
+# 「#」から行末までは説明で、アプリの動作には使われない。
+# 変更するときは「項目名: 値」の値を編集する。項目名・字下げは保つ（タブでなく半角スペース）。
+# true = 有効、false = 無効、null = 未指定。Windowsパスは一重引用符 '...' で囲むと書きやすい。
+# 相対パスは、この設定ファイルが置かれたフォルダを基準にする。
+# 使用するファイルは --config で指定する。変更が効くのは次にコマンドを起動したとき。
+#
+# 実利用で主に確認する項目:
+#   analysis.default_provider / policy / allow_external_fulltext
+#   destination.allow_vault_write
+# モデルは select-model で選べる。バッチ全体の本数は設定ファイルではなく --count / --total で指定する。
+# Provider・モデル・研究文脈等を変えると解析の再利用条件が変わる。実行途中のバッチは設定を固定する。
+# 外部送信・Vault保存は、許可スイッチと実行コマンドで制御する。
+
+# 配布用の見本。bibtex_fileは未設定なので、利用するPCの保存先に合わせる。
+
+# 入力元。Paperpileが同期したPDFと書誌情報を読む場所。
+source:
+  # PaperpileのPDF原本が入っているフォルダ。Windowsのフルパスを指定する。
+  # このPCではG:のPaperpile。PaperFlowはここを読み取り、原本を変更しない。
+  paperpile_dir: 'G:\マイドライブ\Paperpile'
+
+  # Paperpileが自動出力するBibTeX（.bib）のフルパス。PDFと論文のタイトル等を照合する。
+  # このPCの保存先は 'G:\マイドライブ\paperpile.bib'。nullは未設定で、PDF候補の検出だけになる。
+  bibtex_file: null
+
+  # true: Paperpileフォルダ内のサブフォルダも探す。false: 指定フォルダ直下だけ探す。
+  # Paperpileは階層を使うため、通常はtrueのまま。
+  recurse: true
+
+  # 原本を読み取り専用として扱う固定値。trueのままにする（falseは設定エラー）。
+  read_only: true
+
+
+# 出力先。Obsidianへ何をどの形式で保存するか。
+destination:
+  # 要約を保存するObsidian Vaultのルートフォルダ。10_Papers等がある場所を指定する。
+  # このPCでは 'H:\マイドライブ\LLM-Wiki'。Paperpile原本とは別の場所にする。
+  vault_dir: 'H:\マイドライブ\LLM-Wiki'
+
+  # 従来形式（layout: paperflow）で使う出力名。対応値はPaperFlowのみなので変更不要。
+  # 正式Wiki形式（llm_wiki）の保存先フォルダ名を変える項目ではない。
+  namespace: 'PaperFlow'
+
+  # llm_wiki: LLM-Wikiの正式Source Note・凍結PDF・統合提案として保存する。通常はこちら。
+  # paperflow: 旧形式のPaperFlow配下へ出力する互換モード。任意本数のバッチはllm_wiki専用。
+  layout: 'llm_wiki'
+
+  # 原本と同じPDFの保存版をVaultにコピーする。G:原本の移動・変更はしない。
+  # layout: llm_wikiならtrue必須。旧形式のpaperflowならfalse必須。
+  copy_pdf: true
+
+  # true: 新規Source Noteに、選ばれた元PDFの図表画像を添付する。
+  # 図表付き要約にはtrueのまま。画像をAIへ読ませるかは下のrequire_visual_readingで決まる。
+  include_visuals: true
+
+  # 1論文の要約に添える図表の最大件数。1〜8件。図表が少なければこの数より少なくなる。
+  # AIに見せるページ数ではない。全ページを読んだ後に、要約へ添える図表を選ぶ。
+  visual_max_items: 3
+
+  # true: この設定でVaultへの保存を許可する。false: 実際の書き込みを止める。
+  # 対象と保存先を確認してからtrueへ変更する。falseではVaultへ書き込まない。
+  # falseでもdry-runやC:への解析・準備は可能。trueにするだけでは処理や定期実行は始まらない。
+  allow_vault_write: false
+
+  # true: 出力先に.llm-wiki-rootがあることを確認する。誤った場所へ書かないための確認。
+  # 通常はtrueのまま。正式Wikiモードでは、この値に関係なくマーカーが必要。
+  require_wiki_marker: true
+
+
+# C:内の作業データ。処理済み判定・解析の再利用・中断からの再開に使う。
+storage:
+  # 解析JSON・モデル選択の記憶・バッチ計画・反映前の作業ファイルを置くフォルダ。
+  # 相対パスはこの設定ファイルのあるフォルダから数える。.dataならプロジェクト内の.data。
+  # WindowsではC:内、Paperpile・Vaultの外にする。処理中の移動・削除はしない。
+  data_dir: '.data'
+
+  # 処理履歴を保存するSQLiteファイル。取り込み済み・解析結果・消費量等の記録に使う。
+  # WindowsではC:内、Paperpile・Vaultの外。使い始めたDBを消さず、運用中は同じものを使う。
+  database: '.data/state.db'
+
+
+# AIの選択・送信範囲・画像読解・時間/容量の上限。
+analysis:
+  # あなたの専門・興味・評価方針。要約の「研究との関連」や読書優先度へ反映する。
+  # 編集する場合は、下の文章の字下げを保つ。変更すると解析の再利用条件も変わる。
+  research_context: >-
+    専門はケモインフォマティクス。バイオインフォマティクス、純粋なNLP、
+    画像系AI、ALife・人工生命、LLMシミュレーションなどAI全般にも広く関心がある。
+    専門への直接貢献と他分野の知的関心・手法上の有用性を分けて説明し、
+    ケモインフォとの関連が薄いことだけを理由に他分野の優先度を下げない。
+
+  # fake: 通信しない動作確認用。実際の論文要約は作らない。claude/codex: 各公式CLIで解析。
+  # 優先順はコマンドの--provider → 前回の選択 → この値。普段はselect-modelで選べる。
+  # ここをclaude/codexにするだけでは、PDF全文の送信許可やVault保存の許可は変わらない。
+  default_provider: 'fake'
+
+  # abstract_only: 書誌に含まれる抄録だけを送る。PDFの本文・画像は送らない。
+  # fulltext_external: PDF本文に加え、視覚読解が有効ならPDF/全ページ画像も送る。
+  # 図表を読んだ実用要約にはfulltext_externalを使い、allow_external_fulltextもtrueにする。
+  policy: 'abstract_only'
+
+  # PDF全文・視覚入力の外部送信を許可するスイッチ。許可する範囲を確認してからtrueへ。
+  # policy: fulltext_externalで使う場合はtrue必須。falseのままだとその組み合わせは設定エラー。
+  # abstract_onlyでも抄録は外部送信され得る。外部通信なしの確認にはfakeを選ぶ。
+  allow_external_fulltext: false
+
+  # true: 全文解析で、要約担当AIにPDF/全ページ画像も読ませる。図表読解のためtrueのまま。
+  # ClaudeにはPDFを直接添付、Codexには全ページPNGを添付する。未完了なら文字だけで代用せず停止。
+  # 実論文のbatch-runではtrue必須。fakeの出力は画像読解の実施を意味しない。
+  require_visual_reading: true
+
+  # 1論文で視覚読解するPDFのページ数上限。1以上。実測の最大264ページを収める値に設定。
+  # 超過したPDFはbatch-planの候補から外す。通常の全文解析でも勝手にページを間引かず停止する。
+  # PaperFlow側の運用値。モデル/CLIの実上限ではない。100ページ超のClaude PDFには対応コンテキストが必要。
+  visual_max_pages: 300
+
+  # 視覚読解へ渡す元PDFの容量上限（MiB、1以上）。実測最大44.35MiBを収める値に設定。
+  # 画像化した後の容量ではない。超過したPDFはバッチ候補から除外される。
+  visual_max_pdf_mb: 64
+
+  # Codexへ渡す全ページPNGの合計容量上限（MiB、1以上）。全PDFの画像化で最大91.28MiBだったため、128MiBに設定。
+  # PDFの容量が小さくても画像化すると大きくなる場合がある。超過時は送信前に停止する。
+  visual_max_image_mb: 128
+
+  # 生成する本文・見出し・説明の言語。対応値はja（日本語）だけなので変更不要。
+  # 論文原題・固有名詞・機械用の識別子は原文のまま保持する。
+  language: 'ja'
+
+  # AIへ補助的に渡す抽出テキストの文字数上限（100文字以上）。実測最大2,785,460文字を収める値。
+  # 超過時はテキストを途中で切り、未読部分があることを記録する。トークン数の上限ではない。
+  # 視覚入力のページ数は別管理。画像/PDFを渡す場合の総トークン量をこの値だけでは制限できない。
+  max_chars: 3000000
+
+  # 同時に解析する論文数。現在の実装は1件ずつのみ対応しているので1のまま。
+  max_concurrency: 1
+
+  # 1論文のCLI解析の待ち時間上限（秒）。1〜3,600秒。240は4分。
+  # バッチ全体の制限時間ではない。長い論文でタイムアウトするときに調整する。
+  timeout_seconds: 240
+
+  # PaperFlowのwatch/retryで使う、失敗後の再試行回数の上限。0〜10回。
+  # 一時障害だけが対象。有限のsyncはretryで再投入する。batch-runの手動再開は別扱い。
+  max_retries: 3
+
+  # sync1回で外部CLI解析を試す回数の上限。1〜100回。
+  # batch-runでは内部の1区切りの上限になる。バッチ全体の本数はbatch-plan --count/--totalで指定。
+  # CLI内部で行われるAPI通信の回数や、金額・トークン数の上限を指定する項目ではない。
+  max_cli_calls_per_run: 10
+
+  # 一時障害の再試行まで待つ時間の基準（秒）。0〜3,600秒。
+  # 30なら失敗回数に応じて30秒、60秒、120秒…と待ち時間を延ばす。
+  retry_base_seconds: 30
+
+  # 論文の主題分類に使う語彙一覧YAML。相対パスはこの設定ファイルのある場所から数える。
+  # 通常はtaxonomy.yaml。関心分野を増やすときはそちらを編集する。変更は解析の再利用条件に影響する。
+  taxonomy_file: 'taxonomy.yaml'
+
+  # 内部の解析指示の版。対応値はv1のみなので変更不要。視覚読解用の追加指示は自動で使われる。
+  # 画像読解に切り替えるために、この値をv2へ変える必要はない。
+  prompt_version: 'v1'
+
+  # モデルIDの予備の指定。nullは未指定で、保存済み選択やCLIの既定モデルを使う。
+  # 普段はnullのままselect-modelで選ぶ。--modelや保存済みの選択があればそちらが優先される。
+  # この値はdefault_providerと同じProvider向け。別Providerのモデル名を混ぜない。
+  model: null
+
+  # Claude Code CLIを起動するコマンド名、またはclaude.exeのフルパス。
+  # 通常はclaude。見つからない場合の例: 'C:\Users\TAKUH\.local\bin\claude.exe'。
+  # ログインは公式CLI側で行う。ここにAPIキーや認証情報を書かない。
+  claude_command: 'claude'
+
+  # Codex CLIを起動するコマンド名、またはネイティブcodex.exeのフルパス。
+  # 通常はcodex。Windowsの公式npm版ラッパーは、内部のネイティブexeを見つけて起動する。
+  # 任意の.cmd/.bat/.ps1を指定して起動する仕組みではない。
+  codex_command: 'codex'
+
+  # CLIの応答・ログ等を受け取る容量上限（バイト）。1,024〜16,777,216。
+  # 2,097,152は2MiB。超過時は停止する。元PDFや入力画像の容量制限とは別。
+  max_output_bytes: 2097152
+
+  # Claude CLIの1論文の解析に渡すUSD予算の目安。0より大きく100以下。対応CLIでのみ利用。
+  # Codexには適用されず、バッチ全体の費用上限でもない。定額プランの残り利用率ではない。
+  # 実際の課金を厳密に保証する上限ではなく、CLIの費用推定に基づく設定。
+  max_budget_usd: 0.5
+
+
+# 走査・分割処理・手動監視の設定。定期実行を登録する設定ではない。
+sync:
+  # watchを手動起動している間、1回の処理後に次の確認まで待つ秒数。300は5分。
+  # watch --intervalの指定が優先される。タスクスケジューラへの登録は行わない。
+  interval_seconds: 300
+
+  # PDFのサイズ・更新時刻が連続して同じなら、同期が落ち着いたとみなす観測回数。1〜10回。
+  # 通常は2。秒数ではない。初回のscanと次のbatch-plan等の走査を組み合わせて確認する。
+  stable_scan_count: 2
+
+  # sync1回の処理本数の上限。1〜1,000本。--limitと両方ある場合は小さい方が効く。
+  # batch-runでは内部の1区切りの本数。バッチ全体で追加したい本数はbatch-plan --count Nで指定。
+  # バッチはmax_cli_calls_per_runとの小さい方ずつに分け、対象一覧全体を順に処理する。
+  max_papers_per_run: 10

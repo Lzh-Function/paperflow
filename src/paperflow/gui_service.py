@@ -1,0 +1,205 @@
+"""デスクトップ画面から共通処理を呼び出す。GUI部品を参照しない。"""
+
+import json
+import threading
+from pathlib import Path
+
+from paperflow import batches, library
+from paperflow.agents.catalog import model_id
+from paperflow.config import SettingsError, load_config
+from paperflow.model_selection import cached_catalog, get_catalog, preferences, remember
+from paperflow.pipeline import Pipeline
+from paperflow.progress_sync import ProgressSync
+
+
+class GuiService:
+    def __init__(self, path):
+        self.path = Path(path).resolve()
+        self.stop_event = threading.Event()
+        self._registry = None
+        self._registry_binding = None
+        self._registry_attempted = False
+        self._registry_checked_at = ""
+        self._registry_warning = ""
+        self._sync_confirmation = None
+
+    def _sync_binding(self, cfg):
+        from paperflow.progress_sync import settings
+
+        state = settings(cfg)
+        return (
+            str(cfg.storage.database),
+            str(cfg.source.paperpile_dir),
+            str(cfg.destination.vault_dir),
+            state.get("workspace_id"),
+            state.get("shared_folder"),
+        )
+
+    def progress_confirmed(self, cfg=None):
+        return self._sync_confirmation == self._sync_binding(cfg or self.config())
+
+    def cloud(self, cfg=None):
+        cfg = cfg or self.config()
+        return ProgressSync(cfg, confirmed=self.progress_confirmed(cfg))
+
+    def confirm_progress(self):
+        cfg = self.config()
+        cloud = ProgressSync(cfg, confirmed=True)
+        if not cloud.enabled:
+            from paperflow.progress_sync import SyncError
+
+            raise SyncError("先に共有フォルダを新規作成するか、既存の共有を引き継いでください")
+        result = cloud.sync()
+        self._sync_confirmation = self._sync_binding(cfg)
+        return result
+
+    def config(self, provider=None, model=None):
+        cfg = load_config(self.path)
+        if provider is not None:
+            cfg.analysis.default_provider = provider
+            cfg.analysis.model = None if provider == "fake" or not model else model_id(model)
+        return cfg
+
+    def initial_selection(self):
+        cfg = self.config()
+        saved = preferences(cfg)
+        provider = saved["last_provider"] or cfg.analysis.default_provider
+        model = saved["models"].get(provider) or (
+            cfg.analysis.model if provider == cfg.analysis.default_provider else None
+        )
+        return provider, model
+
+    def models(self, provider, *, refresh=False):
+        cfg = self.config()
+        if provider == "fake":
+            return None
+        return get_catalog(cfg, provider) if refresh else cached_catalog(cfg, provider)
+
+    def remember(self, provider, model):
+        cfg = self.config(provider, model)
+        remember(cfg, provider, cfg.analysis.model)
+
+    def prepare(self, mode, count=None):
+        cfg = self.config()
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        # 同期の安定性の観測と一覧作成はローカル処理のみ。
+        try:
+            Pipeline(cfg).run(scan_only=True)
+            options = dict(
+                all_papers=mode == "all",
+                count=count if mode == "count" else None,
+                total=count if mode == "total" else None,
+            )
+            return batches.plan(cfg, **options)
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
+    def load_plan(self, path):
+        return batches.load(self.config(), Path(path))
+
+    def run(self, path, provider, model, on_progress=None, on_paper=None):
+        cfg = self.config(provider, model)
+        if not cfg.destination.allow_vault_write:
+            raise SettingsError("設定の「Vaultへの保存を許可」を有効にしてください")
+        if provider != "fake" and not (
+            cfg.analysis.allow_external_fulltext
+            and cfg.analysis.policy == "fulltext_external"
+            and cfg.analysis.require_visual_reading
+        ):
+            raise SettingsError("設定で全文解析・PDFの外部送信・視覚読解を有効にしてください")
+        remember(cfg, provider, cfg.analysis.model)
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        try:
+            return batches.execute(
+                cfg,
+                Path(path),
+                on_progress=on_progress,
+                on_paper=on_paper,
+                should_stop=self.stop_event.is_set,
+                save_each_paper=True,
+                checkpoint=cloud.checkpoint if cloud.enabled else None,
+            )
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
+    def report(self, path):
+        return batches.report(self.config(), Path(path))
+
+    def live_report(self, path):
+        return batches.live_report(self.config(), Path(path))
+
+    def library(self, *, reconcile=False):
+        from paperflow.store import now
+
+        cfg = self.config()
+        binding = batches.binding(cfg)
+        if binding != self._registry_binding:
+            self._registry = None
+            self._registry_attempted = False
+            self._registry_checked_at = ""
+            self._registry_warning = ""
+            self._registry_binding = binding
+        if cfg.destination.layout == "llm_wiki" and (reconcile or not self._registry_attempted):
+            self._registry_attempted = True
+            try:
+                registry = batches.Registry(cfg)
+            except (OSError, ValueError) as exc:
+                self._registry_warning = "Vaultとの照合を完了できませんでした：" + str(exc)
+            else:
+                self._registry = registry
+                self._registry_checked_at = now()
+                self._registry_warning = ""
+        result = library.snapshot(cfg, self._registry)
+        result.update(registry_checked_at=self._registry_checked_at, warning=self._registry_warning)
+        return result
+
+    def sync_library(self):
+        cfg = self.config()
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        try:
+            return Pipeline(cfg).run(scan_only=True)
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
+    def progress_sync(self):
+        cloud = self.cloud()
+        return cloud.sync(publish=cloud.confirmed)
+
+    def history(self):
+        root = self.config().storage.data_dir / "batches"
+        items = []
+        if not root.exists():
+            return items
+        for path in sorted(root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if path.stat().st_size > 16 * 1024 * 1024:
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("type") != "paperflow-batch":
+                    continue
+                progress = path.with_name(path.stem + ".progress.json")
+                state = (
+                    json.loads(progress.read_text(encoding="utf-8")).get("status", "not_started")
+                    if progress.exists()
+                    else "not_started"
+                )
+                items.append(
+                    dict(
+                        path=str(path),
+                        created_at=data.get("created_at", ""),
+                        count=data.get("selected_count", 0),
+                        status=state,
+                    )
+                )
+            except (OSError, ValueError):
+                continue
+        return items
