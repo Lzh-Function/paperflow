@@ -2,6 +2,7 @@
 
 import json
 
+from paperflow.agents.json_response import parse_analysis_response
 from paperflow.agents.schema import validate
 from paperflow.config import SettingsError
 from paperflow.drive_paths import drive_path
@@ -26,7 +27,7 @@ def revalidate_run(cfg, store, paper, request, identity):
         (paper["paper_id"],),
     )
     run = next((r for r in runs if r["source_hash"] in identities), None)
-    if run is None or run["error_type"] not in {"schema", "visual_reading"}:
+    if run is None or run["error_type"] not in {"schema", "visual_reading", "invalid_json"}:
         raise SettingsError(
             "現在のPDF・書誌・モデル・解析設定と一致する保存済み不採用回答がありません"
         )
@@ -63,7 +64,14 @@ def revalidate_run(cfg, store, paper, request, identity):
             raise SettingsError(
                 "Vaultに登録済みの論文は再検証で切り替えません。要約の版管理を使ってください"
             )
-    data = validate(record["response"], request)
+    original = record["response"]
+    if run["error_type"] == "invalid_json":
+        original = record.get("raw_response")
+        if not isinstance(original, str):
+            raise SettingsError("再検証できる元の回答文字列が保存されていません")
+        data = validate(parse_analysis_response(original), request)
+    else:
+        data = validate(original, request)
     output = cfg.storage.data_dir / "analysis" / (run["run_id"] + ".json")
     if output.exists() or run["output_json"]:
         raise SettingsError("既存の正式解析データは再検証で上書きしません")
@@ -82,7 +90,8 @@ def revalidate_run(cfg, store, paper, request, identity):
             original_source_hash=run["source_hash"],
             source_hash=current,
             external_calls=0,
-            response_sha256=digest(record["response"]),
+            response_sha256=digest(original),
+            response_format="raw-json" if run["error_type"] == "invalid_json" else "parsed-json",
             normalized_sha256=digest(data),
         ),
     )

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from conftest import tree
 from test_batches import batch_config as batch_fixture
-from test_response_recovery import RejectedProvider
+from test_response_recovery import RawRejectedProvider, RejectedProvider
 
 from paperflow import recovery
 from paperflow.agents.base import AnalysisResult, ProviderError
@@ -99,6 +99,26 @@ def test_bulk_local_revalidation_continues_past_missing_answers(cfg, monkeypatch
     assert [i["status"] for i in result["items"]] == ["needs_analysis", "ready"]
     assert tree(cfg.destination.vault_dir) == vault
     assert all(i["external_calls"] == 0 for i in result["items"])
+
+
+def test_saved_raw_json_can_be_selected_and_saved_without_ai(cfg, monkeypatch):
+    cfg.analysis.default_provider = "agy"
+    cfg.analysis.model = "synthetic-model"
+    cfg.analysis.policy = "fulltext_external"
+    cfg.analysis.allow_external_fulltext = True
+    cfg.analysis.require_visual_reading = True
+    chosen = ids(cfg)[:1]
+    Pipeline(cfg, RawRejectedProvider()).run(paper_ids=chosen, export=False)
+    assert recovery.overview(cfg)["counts"] == {"revalidate": 1}
+    job = recovery.prepare_job(cfg, chosen, "save")
+    monkeypatch.setattr(Pipeline, "_provider", forbid)
+    result = recovery.execute(cfg, job)
+    assert result["status"] == "complete", result
+    assert result["items"][0]["status"] == "saved"
+    assert result["items"][0]["external_calls"] == 0
+    with Store(cfg.storage.database, readonly=True) as store:
+        assert len(store.rows("SELECT * FROM analysis_runs")) == 1
+        assert len(store.rows("SELECT * FROM exports")) == 1
 
 
 def test_retry_new_model_does_not_change_shared_analysis_config(cfg):

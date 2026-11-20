@@ -6,6 +6,7 @@ from conftest import tree
 from test_vision import visual_data
 
 from paperflow.agents.base import ProviderError
+from paperflow.agents.json_response import parse_response, response_error
 from paperflow.config import SettingsError
 from paperflow.models import digest
 from paperflow.pipeline import Pipeline
@@ -39,6 +40,98 @@ class RejectedProvider:
         error.usage = dict(input_tokens=123, output_tokens=45, total_tokens=168)
         error.elapsed_seconds = 2.5
         raise error
+
+
+class RawRejectedProvider:
+    def analyze(self, request):
+        data = visual_data(request)
+        data["approach_ja"] = r"合成の立体記号（@、@@、/、\等）"
+        raw = json.dumps(data, ensure_ascii=False).replace(r"\\等", r"\等")
+        try:
+            parse_response(raw)
+        except ValueError as cause:
+            error = response_error(
+                "合成のJSON書式エラー",
+                cause,
+                raw=raw,
+                receipt=dict(
+                    provider="agy",
+                    model="synthetic-model",
+                    pdf_sha256=request.document.sha256,
+                    page_count=request.document.page_count,
+                    pdf_read_completed=True,
+                ),
+            )
+            error.usage = dict(input_tokens=123, output_tokens=45, total_tokens=168)
+            raise error from cause
+
+
+@pytest.fixture
+def raw_config(small_config):
+    cfg = small_config
+    cfg.analysis.default_provider = "agy"
+    cfg.analysis.model = "synthetic-model"
+    cfg.analysis.policy = "fulltext_external"
+    cfg.analysis.allow_external_fulltext = True
+    cfg.analysis.require_visual_reading = True
+    Pipeline(cfg).run(scan_only=True)
+    result = Pipeline(cfg, RawRejectedProvider()).run(export=False)
+    assert result["failures"][0]["category"] == "invalid_json"
+    return cfg
+
+
+def test_selected_raw_json_revalidation_retains_failure_and_usage_without_ai(
+    raw_config, monkeypatch
+):
+    cfg = raw_config
+    with Store(cfg.storage.database, readonly=True) as store:
+        run = store.rows("SELECT * FROM analysis_runs")[0]
+        usage = store.rows("SELECT * FROM analysis_usage")
+    diagnostic = cfg.storage.data_dir / "diagnostics" / (run["run_id"] + ".rejected.json")
+    before = diagnostic.read_bytes()
+    vault = tree(cfg.destination.vault_dir)
+    monkeypatch.setattr(Pipeline, "_provider", lambda *a: pytest.fail("AIを呼びました"))
+    revalidate_selected(cfg, [run["paper_id"]])
+    assert diagnostic.read_bytes() == before and tree(cfg.destination.vault_dir) == vault
+    audit = json.loads(diagnostic.with_name(run["run_id"] + ".revalidated.json").read_text())
+    assert audit["response_format"] == "raw-json" and audit["external_calls"] == 0
+    assert audit["original_category"] == "invalid_json"
+    with Store(cfg.storage.database, readonly=True) as store:
+        updated = store.rows("SELECT * FROM analysis_runs")[0]
+        assert updated["status"] == "success" and updated["run_id"] == run["run_id"]
+        data = json.loads(updated["output_json"])
+        assert data["approach_ja"] == r"合成の立体記号（@、@@、/、\等）"
+        assert "形式補正" in data["uncertainties_ja"][-1]
+        assert store.rows("SELECT * FROM analysis_usage") == usage
+        assert store.rows("SELECT * FROM exports") == []
+
+
+@pytest.mark.parametrize("problem", ["receipt", "missing-raw", "structure", "pages", "model"])
+def test_raw_json_revalidation_rejects_incomplete_or_changed_input(
+    raw_config, monkeypatch, problem
+):
+    cfg = raw_config
+    with Store(cfg.storage.database, readonly=True) as store:
+        run = store.rows("SELECT * FROM analysis_runs")[0]
+    diagnostic = cfg.storage.data_dir / "diagnostics" / (run["run_id"] + ".rejected.json")
+    record = json.loads(diagnostic.read_text(encoding="utf-8"))
+    if problem == "receipt":
+        record["input_receipt"]["pdf_read_completed"] = False
+    elif problem == "missing-raw":
+        record.pop("raw_response")
+    elif problem == "structure":
+        record["raw_response"] += "{}"
+    elif problem == "pages":
+        record["input_receipt"]["page_count"] += 1
+    else:
+        cfg.analysis.model = "changed-model"
+    diagnostic.write_text(json.dumps(record), encoding="utf-8")
+    monkeypatch.setattr(Pipeline, "_provider", lambda *a: pytest.fail("AIを呼びました"))
+    with pytest.raises((SettingsError, ValueError, ProviderError)):
+        revalidate_selected(cfg, [run["paper_id"]])
+    with Store(cfg.storage.database, readonly=True) as store:
+        assert store.rows("SELECT status FROM analysis_runs")[0]["status"] == "failed"
+        assert store.rows("SELECT * FROM exports") == []
 
 
 @pytest.fixture

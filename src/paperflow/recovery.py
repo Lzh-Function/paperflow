@@ -76,7 +76,10 @@ def overview(cfg, registry=None):
             row["error_type"] == "saved_import_pending" and latest.get("status") == "success"
         ):
             group = "ready"
-        elif latest.get("error_type") in {"visual_reading", "schema"} and diagnostic.is_file():
+        elif (
+            latest.get("error_type") in {"visual_reading", "schema", "invalid_json"}
+            and diagnostic.is_file()
+        ):
             group = "revalidate"
         elif row["paper_id"] in artifacts:
             group = "artifact"
@@ -324,7 +327,7 @@ def _one(cfg, store, item, mode, *, injected_provider=None, checkpoint=None, job
                 external_calls=0,
             )
         if good is None and (
-            run["error_type"] not in {"visual_reading", "schema"}
+            run["error_type"] not in {"visual_reading", "schema", "invalid_json"}
             or not (
                 work.storage.data_dir / "diagnostics" / (run["run_id"] + ".rejected.json")
             ).is_file()
