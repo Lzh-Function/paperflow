@@ -13,9 +13,9 @@
 
 ## AIと保存先を設定する
 
-1. 使用するCLIをWindowsへ導入する。[Claude Codeの公式導入案内](https://code.claude.com/docs/en/setup)、[Codex CLIの公式導入案内](https://developers.openai.com/codex/cli)。片方だけの導入でもよい。
-2. 必要なら「設定」→「AI・読解」のClaude CLI / Codex CLI欄へ、このPCの実行ファイルを指定して保存する。
-3. 「PC間同期」の **Claudeにログイン** / **Codexにログイン** を押して認証する。
+1. 使用するCLIをWindowsへ導入する。[Claude Codeの公式導入案内](https://code.claude.com/docs/en/setup)、[Codex CLIの公式導入案内](https://developers.openai.com/codex/cli)。[Antigravity CLI（agy）](https://antigravity.google/docs/quickstart)も選択できる。使うCLIだけでよい。
+2. 必要なら「設定」→「AI・読解」のClaude CLI / Codex CLI / Antigravity CLI（agy）欄へ、このPCの実行ファイルを指定して保存する。
+3. 「PC間同期」の **Claudeにログイン** / **Codexにログイン** / **agyにログイン** を押して認証する。
 4. 「取り込み」でAI・モデルを選び、入力元と保存先を確認する。
 5. PDF外部送信・Obsidian保存のチェックを入れ、**設定を保存** を押す。解析は実行ボタンを押すまで始まらない。
 

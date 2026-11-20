@@ -6,7 +6,7 @@ PowerShellでプロジェクトのフォルダに移動し、次のコマンド�
 & $uv run paperflow select-model
 ```
 
-1. Claude Code CLI / Codex CLI / Fakeから番号で選ぶ。
+1. Claude Code CLI / Codex CLI / Antigravity CLI（agy） / Fakeから番号で選ぶ。
 2. 選んだ公式CLIから返されたモデル候補を番号で選ぶ。モデルIDの手入力もできる。
 3. ProviderごとのモデルIDと最後に選んだProviderをC:のローカル設定に記憶する。
 
@@ -23,6 +23,7 @@ PowerShellでプロジェクトのフォルダに移動し、次のコマンド�
 # 公式CLIからのモデル一覧取得・更新だけを行う
 & $uv run paperflow models --provider claude
 & $uv run paperflow models --provider codex
+& $uv run paperflow models --provider agy
 
 # 保存済み一覧を読み取り専用で表示
 & $uv run paperflow models --provider codex --cached
@@ -34,7 +35,7 @@ PowerShellでプロジェクトのフォルダに移動し、次のコマンド�
 
 ## 選択の記憶とコマンド指定
 
-選択は `storage.data_dir/model-preferences.json` に保存する。`config.yaml` は書き換えない。候補一覧は同じディレクトリの `model-catalog-claude.json` / `model-catalog-codex.json` に保存し、取得日時を保持する。CLI初期化応答のアカウント情報は保存しない。
+選択は `storage.data_dir/model-preferences.json` に保存する。`config.yaml` は書き換えない。候補一覧は同じディレクトリの `model-catalog-claude.json` / `model-catalog-codex.json` / `model-catalog-agy.json` に保存し、取得日時を保持する。CLI初期化応答のアカウント情報は保存しない。
 
 Providerの優先順位は `--provider` → 最後に選んだProvider → `analysis.default_provider`。
 モデルの優先順位は `--model` → 今回の対話選択 → そのProviderの保存済みモデル → `analysis.model` → CLIの既定値。
@@ -58,6 +59,8 @@ Providerの優先順位は `--provider` → 最後に選んだProvider → `anal
 実行結果の `model_selection` にProvider、指定モデルID、指定の有無を出力する。`model: null` / `model_source: cli_default` はCLIに既定モデルの決定を任せた状態。指定済みは `model_source: pinned`。モデル指定を変更すると解析キャッシュの判定も変わり、再解析が必要になる場合がある。
 
 ## 候補の取得方法と取得失敗時
+
+agyは `agy --output-format json models` の `command.data.models` からID・表示名を取得する。PaperFlowにモデル一覧を固定しない。設定・PDF入力は [agyの操作手順](agy.md) を参照。
 
 モデルIDの一覧はハードコードしない。ClaudeはCLIの制御プロトコルの初期化応答、Codexはapp-serverの初期化後の `model/list` を使う。Claudeの別名は応答の具体的なモデルIDへ解決し、同一モデルを重複表示しない。Codexは非表示モデルを除き、ページをたどって候補を取得する。
 

@@ -90,9 +90,9 @@ analysis:
     専門への直接貢献と他分野の知的関心・手法上の有用性を分けて説明し、
     ケモインフォとの関連が薄いことだけを理由に他分野の優先度を下げない。
 
-  # fake: 通信しない動作確認用。実際の論文要約は作らない。claude/codex: 各公式CLIで解析。
+  # fake: 通信しない動作確認用。実際の論文要約は作らない。claude/codex/agy: 各公式CLIで解析。
   # 優先順はコマンドの--provider → 前回の選択 → この値。普段はselect-modelで選べる。
-  # ここをclaude/codexにするだけでは、PDF全文の送信許可やVault保存の許可は変わらない。
+  # ここをclaude/codex/agyにするだけでは、PDF全文の送信許可やVault保存の許可は変わらない。
   default_provider: 'fake'
 
   # abstract_only: 書誌に含まれる抄録だけを送る。PDFの本文・画像は送らない。
@@ -106,7 +106,7 @@ analysis:
   allow_external_fulltext: false
 
   # true: 全文解析で、要約担当AIにPDF/全ページ画像も読ませる。図表読解のためtrueのまま。
-  # ClaudeにはPDFを直接添付、Codexには全ページPNGを添付する。未完了なら文字だけで代用せず停止。
+  # ClaudeはPDF添付、agyは作業用PDFの直接読解、Codexは全ページPNG。未完了なら文字だけで代用せず停止。
   # 実論文のbatch-runではtrue必須。fakeの出力は画像読解の実施を意味しない。
   require_visual_reading: true
 
@@ -175,12 +175,17 @@ analysis:
   # 任意の.cmd/.bat/.ps1を指定して起動する仕組みではない。
   codex_command: 'codex'
 
+  # Antigravity CLI（agy）を起動するコマンド名、またはagy.exeのフルパス。
+  # 通常はagy。WindowsではAppData\Local\agy\bin\agy.exeも自動検出する。
+  # ログインはGUIの「agyにログイン」から行う。認証情報はここに書かない。
+  agy_command: 'agy'
+
   # CLIの応答・ログ等を受け取る容量上限（バイト）。1,024〜16,777,216。
   # 2,097,152は2MiB。超過時は停止する。元PDFや入力画像の容量制限とは別。
   max_output_bytes: 2097152
 
   # Claude CLIの1論文の解析に渡すUSD予算の目安。0より大きく100以下。対応CLIでのみ利用。
-  # Codexには適用されず、バッチ全体の費用上限でもない。定額プランの残り利用率ではない。
+  # Codex・agyには適用されず、バッチ全体の費用上限でもない。定額プランの残り利用率ではない。
   # 実際の課金を厳密に保証する上限ではなく、CLIの費用推定に基づく設定。
   max_budget_usd: 0.5
 

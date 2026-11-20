@@ -8,7 +8,7 @@ from pathlib import Path
 
 from paperflow.agents.base import AnalysisResult, ProviderError, authorize_request
 from paperflow.agents.process import checked_help, classify_failure, resolve_command, run_bounded
-from paperflow.agents.schema import make_prompt, schema_for, validate_response
+from paperflow.agents.schema import make_prompt, parse_response, schema_for, validate_response
 from paperflow.agents.usage import claude_usage
 
 
@@ -137,18 +137,20 @@ class ClaudeCliProvider:
             )
             try:
                 if request.document is not None:
-                    results = [json.loads(line) for line in raw.splitlines() if line.strip()]
+                    results = [parse_response(line) for line in raw.splitlines() if line.strip()]
                     envelope = next(r for r in reversed(results) if r.get("type") == "result")
                 else:
-                    envelope = json.loads(raw)
+                    envelope = parse_response(raw)
                 if envelope.get("is_error"):
                     error = classify_failure(json.dumps(envelope), "", 0)
                     error.usage = claude_usage(envelope)
                     error.elapsed_seconds = time.monotonic() - started
                     raise error
                 data = envelope["structured_output"]
+                if isinstance(data, str):
+                    data = parse_response(data)
             except (
-                json.JSONDecodeError,
+                ValueError,
                 KeyError,
                 TypeError,
                 AttributeError,

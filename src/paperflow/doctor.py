@@ -48,19 +48,21 @@ def doctor(config):
             ok=not (root / "00_System/Locks/agent-write-lock.yml").exists(),
         )
     )
-    for name in ("claude", "codex"):
+    for name in ("claude", "codex", "agy"):
         try:
             command = resolve_command(getattr(config.analysis, name + "_command"))
             cwd = Path.cwd()
             version = run_bounded(
                 [command, "--version"], cwd=cwd, timeout=20, max_bytes=65536
             ).strip()
-            required = (
-                ["--json-schema", "--tools", "--strict-mcp-config"]
-                if name == "claude"
-                else ["--output-schema", "--sandbox", "--ephemeral", "--ignore-user-config"]
+            required = {
+                "claude": ["--json-schema", "--tools", "--strict-mcp-config"],
+                "codex": ["--output-schema", "--sandbox", "--ephemeral", "--ignore-user-config"],
+                "agy": ["--include-default-customizations", "--stdio"],
+            }[name]
+            checked_help(
+                command, {"claude": [], "codex": ["exec"], "agy": ["acp"]}[name], required, cwd
             )
-            checked_help(command, [] if name == "claude" else ["exec"], required, cwd)
             checks.append(
                 dict(
                     check=name,

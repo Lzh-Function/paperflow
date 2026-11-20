@@ -1,10 +1,16 @@
 import json
+import re
 from copy import deepcopy
 from importlib.resources import files
 
 from jsonschema import Draft7Validator
 
 from paperflow.agents.base import AnalysisRequest, ProviderError
+from paperflow.resources.wiki_extract_visuals import (
+    NUMBER_PATTERN,
+    canonical_number,
+    number_from_title,
+)
 
 SCHEMA_VERSION = "v1"
 SCHEMA = json.loads(
@@ -33,7 +39,13 @@ VISUAL_SCHEMA["properties"]["visual_review"] = {
                 "properties": {
                     "page": {"type": "integer", "minimum": 1},
                     "kind": {"type": "string", "enum": ["figure", "table", "page"]},
-                    "number": {"type": ["integer", "null"], "minimum": 1},
+                    "number": {
+                        "type": ["integer", "string", "null"],
+                        "minimum": 1,
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^" + NUMBER_PATTERN + "$",
+                    },
                     "title_ja": {"type": "string", "minLength": 1},
                     "explanation_ja": {"type": "string", "minLength": 1},
                     "finding_indices": {
@@ -62,11 +74,107 @@ def schema_for(request):
     return VISUAL_SCHEMA if request.document is not None else SCHEMA
 
 
+def parse_response(text):
+    """BOMと単一JSONフェンスだけを除く。曖昧なJSONを推測して補完しない。"""
+    text = text.lstrip("\ufeff").strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, flags=re.S | re.I)
+    if fenced:
+        text = fenced[1]
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError(f"JSONのキーが重複しています: {key}")
+            result[key] = value
+        return result
+
+    def invalid(value):
+        raise ValueError(f"JSONに非有限数があります: {value}")
+
+    try:
+        return json.loads(text, object_pairs_hook=pairs, parse_constant=invalid)
+    except RecursionError as exc:
+        raise ValueError("JSONの入れ子が深すぎます") from exc
+
+
+def normalize_response(data):
+    """内容を作らず、位置番号の表記と単純な重複だけを正規化する。"""
+    if not isinstance(data, dict):
+        return data
+    result = deepcopy(data)
+    changes = set()
+
+    def integer(value):
+        if isinstance(value, str) and len(value) <= 12 and re.fullmatch(r"\s*0*[1-9]\d*\s*", value):
+            changes.add("ページ・参照番号の数字表記")
+            return int(value)
+        return value
+
+    def unique(values):
+        if isinstance(values, list) and all(type(v) is int for v in values):
+            cleaned = list(dict.fromkeys(values))
+            if cleaned != values:
+                changes.add("ページ・参照番号の重複")
+            return cleaned
+        return values
+
+    if isinstance(result.get("evidence"), list):
+        for entry in result["evidence"]:
+            if isinstance(entry, dict) and "page" in entry:
+                entry["page"] = integer(entry["page"])
+    review = result.get("visual_review")
+    if isinstance(review, dict):
+        pages = review.get("pages_viewed")
+        if isinstance(pages, list):
+            review["pages_viewed"] = unique([integer(p) for p in pages])
+        selections = review.get("selected_visuals")
+        if isinstance(selections, list):
+            cleaned = []
+            for selection in selections:
+                if not isinstance(selection, dict):
+                    cleaned.append(selection)
+                    continue
+                if "page" in selection:
+                    selection["page"] = integer(selection["page"])
+                refs = selection.get("finding_indices")
+                if isinstance(refs, list):
+                    selection["finding_indices"] = unique([integer(i) for i in refs])
+                number = selection.get("number")
+                canonical = canonical_number(number)
+                if number is None:
+                    canonical = number_from_title(selection.get("title_ja"), selection.get("kind"))
+                if canonical != number:
+                    selection["number"] = canonical
+                    changes.add("図表番号の表記")
+                if selection in cleaned:
+                    changes.add("同一内容の図表選択の重複")
+                else:
+                    cleaned.append(selection)
+            review["selected_visuals"] = cleaned
+    if changes and isinstance(result.get("uncertainties_ja"), list):
+        note = (
+            "PaperFlowの形式補正："
+            + "、".join(sorted(changes))
+            + "を整理した。本文の主張と読解範囲は補完していない。"
+        )
+        if note not in result["uncertainties_ja"]:
+            result["uncertainties_ja"].append(note)
+    return result
+
+
 def validate(data: dict, request: AnalysisRequest) -> dict:
+    data = normalize_response(data)
+    if not isinstance(data, dict):
+        raise ProviderError("schema", "解析JSONの最上位はオブジェクトである必要があります")
     schema = VISUAL_SCHEMA if request.document is not None or "visual_review" in data else SCHEMA
     errors = list(Draft7Validator(schema).iter_errors(data))
     if errors:
-        raise ProviderError("schema", "解析JSONが共通Schemaに適合しません")
+        detail = " / ".join(
+            (".".join(map(str, e.absolute_path)) or "回答全体") + ": " + e.validator
+            for e in errors[:3]
+        )
+        raise ProviderError("schema", "解析JSONが共通Schemaに適合しません: " + detail)
     if not set(data["tags"]) <= set(request.taxonomy):
         raise ProviderError("taxonomy", "管理語彙外のタグが返されました")
     if data["coverage"] != request.coverage:
@@ -110,14 +218,18 @@ def validate(data: dict, request: AnalysisRequest) -> dict:
         selections = review["selected_visuals"]
         if request.document and len(selections) > request.document.max_selected_visuals:
             raise ProviderError("visual_reading", "選択した図表が指定件数を超えています")
-        keys = [(v["page"], v["kind"], v["number"]) for v in selections]
-        if len(set(keys)) != len(keys) or any(
-            v["page"] not in seen
-            or len(set(v["finding_indices"])) != len(v["finding_indices"])
-            or any(i > len(data["key_findings_ja"]) for i in v["finding_indices"])
-            for v in selections
-        ):
-            raise ProviderError("visual_reading", "図表のページ・番号・関連所見が不正です")
+        # 番号不明の別図を同じ図と決めつけない。同じ番号の異なる説明も保持する。
+        for index, visual in enumerate(selections, 1):
+            if visual["page"] not in seen:
+                raise ProviderError(
+                    "visual_reading", f"図表{index}のPDFページ{visual['page']}が読解範囲外です"
+                )
+            invalid = [i for i in visual["finding_indices"] if i > len(data["key_findings_ja"])]
+            if invalid:
+                raise ProviderError(
+                    "visual_reading",
+                    f"図表{index}の関連所見番号{invalid}が所見数{len(data['key_findings_ja'])}を超えています",
+                )
     return data
 
 

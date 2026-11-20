@@ -9,7 +9,7 @@ from contextlib import nullcontext
 from paperflow.drive_paths import drive_path
 from paperflow.models import digest
 from paperflow.obsidian.writer import local_lock
-from paperflow.portable import profile
+from paperflow.portable import profile, profiles_compatible
 from paperflow.store import Store, now
 from paperflow.sync_snapshot import (
     backup_local,
@@ -300,7 +300,9 @@ class ProgressSync:
 
     def begin(self):
         self._require_confirmation()
-        if self.local.get("shared_profile") and self.local["shared_profile"] != profile(self.cfg):
+        if self.local.get("shared_profile") and not profiles_compatible(
+            self.local["shared_profile"], profile(self.cfg)
+        ):
             raise SyncError(
                 "解析設定が共有設定と違います。「共有解析設定を適用」するか「現在の解析設定を共有」してください"
             )
@@ -316,7 +318,7 @@ class ProgressSync:
                     "PC間同期ではモデルIDを選択してください。端末ごとの自動選択は使いません"
                 )
             shared = self.local.get("shared_profile")
-            if shared and shared != profile(self.cfg):
+            if shared and not profiles_compatible(shared, profile(self.cfg)):
                 raise SyncError(
                     "解析設定が共有設定と違います。「共有解析設定を適用」してProvider・モデルを確認してください"
                 )

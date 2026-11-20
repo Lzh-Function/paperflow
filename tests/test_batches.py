@@ -81,6 +81,35 @@ def test_random_count_total_and_no_overlap(batch_config):
     assert short["selected_count"] == 6 and short["shortage"] == 93
 
 
+def test_saved_batch_accepts_only_known_visual_contract_upgrade(batch_config, monkeypatch):
+    from paperflow.models import digest
+    from paperflow.portable import LEGACY_VISUAL_CONTRACT, profile
+
+    cfg = batch_config
+    saved = plan(cfg, count=1)
+    path = Path(saved["plan"])
+    assert execute(cfg, path)["status"] == "complete"
+    progress_path = path.with_name(path.stem + ".progress.json")
+    progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress["runtime_key"] = digest(dict(profile(cfg), **LEGACY_VISUAL_CONTRACT))
+    progress_path.write_text(json.dumps(progress), encoding="utf-8")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("登録済み論文を再解析しました")
+
+    monkeypatch.setattr(Pipeline, "_provider", forbidden)
+    assert execute(cfg, path)["status"] == "complete"
+    assert json.loads(progress_path.read_text(encoding="utf-8"))["runtime_key"] == digest(
+        profile(cfg)
+    )
+    progress["runtime_key"] = digest(
+        dict(profile(cfg), model="different", **LEGACY_VISUAL_CONTRACT)
+    )
+    progress_path.write_text(json.dumps(progress), encoding="utf-8")
+    with pytest.raises(WriteConflict, match="前回と違います"):
+        execute(cfg, path)
+
+
 def test_dry_runs_have_no_files_db_or_provider_calls(batch_config, monkeypatch):
     cfg = batch_config
     before = tree(cfg.source.paperpile_dir.parent)

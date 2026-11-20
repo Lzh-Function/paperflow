@@ -52,6 +52,7 @@ class GuiService:
             raise SyncError("先に共有フォルダを新規作成するか、既存の共有を引き継いでください")
         result = cloud.sync()
         self._sync_confirmation = self._sync_binding(cfg)
+        self.clear_sync_error()
         return result
 
     def create_progress_folder(self, folder, name):
@@ -290,9 +291,25 @@ class GuiService:
             if cloud.enabled:
                 cloud.end()
 
+    def revalidate_responses(self, paper_ids, provider=None, model=None):
+        from paperflow.response_recovery import revalidate_selected
+
+        cfg = self.config(provider, model)
+        cloud = self.cloud(self.config())
+        if cloud.enabled:
+            cloud.begin()
+        try:
+            return revalidate_selected(cfg, paper_ids)
+        finally:
+            if cloud.enabled:
+                cloud.end()
+
     def progress_sync(self):
         cloud = self.cloud()
-        return cloud.sync(publish=cloud.confirmed)
+        result = cloud.sync(publish=cloud.confirmed)
+        if cloud.confirmed:
+            self.clear_sync_error()
+        return result
 
     def history(self):
         root = self.config().storage.data_dir / "batches"

@@ -4,12 +4,49 @@ import argparse
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 import pymupdf
 
 VERSION = "paperflow-visuals-v1"
-CAPTION = re.compile(r"^(Fig(?:ure)?\.?|Table)\s*(\d+)(?:[.:\s]|$)", re.I)
+NUMBER_PATTERN = r"(?:\d+[A-Za-z]?|[A-Za-z]{1,3}\d+|[A-Za-z]|[IVXLCDMivxlcdm]+)(?:[.-][A-Za-z0-9]+)*(?:\([A-Za-z0-9]+\))?"
+CAPTION = re.compile(rf"^(Fig(?:ure)?\.?|Table|図|表)\s*({NUMBER_PATTERN})(?=[.:\s]|$)", re.I)
+
+
+def canonical_number(value):
+    if not isinstance(value, str):
+        return value
+    if len(value) > 80:
+        return value
+    text = unicodedata.normalize("NFKC", value).strip()
+    text = re.sub(r"^(?:Fig(?:ure)?\.?|Table|図|表)\s*", "", text, flags=re.I).rstrip(".:").strip()
+    if re.fullmatch(NUMBER_PATTERN, text):
+        return int(text) if text.isdecimal() else text
+    return value
+
+
+def number_from_title(title, kind):
+    if not isinstance(title, str) or kind not in {"figure", "table"}:
+        return None
+    match = CAPTION.match(unicodedata.normalize("NFKC", title).strip())
+    if match and ("table" if match[1].lower() in {"table", "表"} else "figure") == kind:
+        return canonical_number(match[2])
+    return None
+
+
+def number_key(value):
+    return str(canonical_number(value)).casefold() if value is not None else None
+
+
+def filename_number(value):
+    # 表示番号はそのまま記録し、ファイル名は従来と同じ数字だけにする。
+    # 小数・付録番号も同じ数字へ丸めず、安定した別名にする。
+    return (
+        value
+        if type(value) is int
+        else int.from_bytes(hashlib.sha256(str(value).encode("utf-8")).digest()[:12], "big")
+    )
 
 
 def sha(path):
@@ -33,8 +70,8 @@ def captions(page):
             continue
         result.append(
             dict(
-                kind="table" if found[1].lower() == "table" else "figure",
-                number=int(found[2]),
+                kind="table" if found[1].lower() in {"table", "表"} else "figure",
+                number=canonical_number(found[2]),
                 caption=text[:400],
                 rect=list(block["bbox"]),
             )
@@ -187,7 +224,8 @@ def extract_visuals(pdf, output, *, expected_sha256, source_id, maximum=3, selec
                     for c in candidates
                     if c["page"] == number
                     and c["kind"] == selection["kind"]
-                    and c["number"] == selection["number"]
+                    and selection["number"] is not None
+                    and number_key(c["number"]) == number_key(selection["number"])
                 ]
                 if len(matches) == 1:
                     candidate = dict(matches[0])
@@ -206,13 +244,19 @@ def extract_visuals(pdf, output, *, expected_sha256, source_id, maximum=3, selec
         if not picks and len(doc) and selections is None:
             picks = [dict(kind="page", number=1, page=1, caption="", rect=list(doc[0].rect))]
         items = []
-        for candidate in picks:
+        filenames = set()
+        for index, candidate in enumerate(picks):
             page = doc[candidate["page"] - 1]
             if candidate["kind"] == "page":
                 rect, mode = page.rect, "page-context"
             else:
                 rect, mode = crop(page, candidate)
-            filename = f"{candidate['kind']}-{candidate['number']}-p{candidate['page']:03d}.png"
+            token = filename_number(candidate["number"])
+            filename = f"{candidate['kind']}-{token}-p{candidate['page']:03d}.png"
+            if filename in filenames:
+                token = filename_number(f"{candidate['number']}:{index}")
+                filename = f"{candidate['kind']}-{token}-p{candidate['page']:03d}.png"
+            filenames.add(filename)
             path = output / filename
             page.get_pixmap(matrix=pymupdf.Matrix(2, 2), clip=rect, alpha=False).save(path)
             label = {"figure": "図", "table": "表", "page": "ページ"}[candidate["kind"]] + str(

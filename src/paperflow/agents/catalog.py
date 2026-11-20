@@ -56,9 +56,10 @@ def response_object(event, name):
 class JsonChannel:
     """期限・出力量を制限したJSONL制御チャネル。本文は渡さない。"""
 
-    def __init__(self, argv, cwd, *, timeout=20, max_bytes=2097152, env=None):
+    def __init__(self, argv, cwd, *, timeout=20, max_bytes=2097152, env=None, on_event=None):
         self.deadline = time.monotonic() + timeout
         self.max_bytes = max_bytes
+        self.on_event = on_event
         self.events = queue.Queue(maxsize=128)
         self.closed = threading.Event()
         self.stderr = tempfile.TemporaryFile()
@@ -134,6 +135,8 @@ class JsonChannel:
                 self.stderr.seek(0)
                 details = self.stderr.read(self.max_bytes).decode("utf-8", errors="replace")
                 raise classify_failure("", details, self.process.poll() or 1)
+            if self.on_event:
+                self.on_event(event)
             # A catalog lookup never grants server-initiated tool or credential requests.
             if "method" in event and "id" in event:
                 self.send(
@@ -193,7 +196,7 @@ def normalize_models(provider: str, entries: list[dict]) -> list[ModelChoice]:
             identifier = model_id(identifier)
         except ValueError:
             continue
-        name = display_text(entry.get("displayName") or identifier)
+        name = display_text(entry.get("displayName") or entry.get("label") or identifier)
         name = name.replace(" (1M context)", "（100万トークンのコンテキスト）")
         if provider == "claude" and alias == "default":
             name = identifier
@@ -210,14 +213,27 @@ def normalize_models(provider: str, entries: list[dict]) -> list[ModelChoice]:
 
 
 def discover(config, provider: str, *, timeout=20) -> ModelCatalog:
-    if provider not in ("claude", "codex"):
-        raise ValueError("モデル一覧はclaudeかcodexを指定してください")
+    if provider not in ("claude", "codex", "agy"):
+        raise ValueError("モデル一覧はclaude・codex・agyを指定してください")
     command = resolve_command(getattr(config.analysis, provider + "_command"))
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     with tempfile.TemporaryDirectory(prefix="paperflow-models-") as directory:
         cwd = Path(directory)
-        if provider == "claude":
+        if provider == "agy":
+            from paperflow.agents.process import run_bounded
+
+            raw = run_bounded(
+                [command, "--output-format", "json", "models"], cwd=cwd, timeout=timeout
+            )
+            try:
+                response = json.loads(raw)
+                if response.get("status") != "SUCCESS":
+                    raise ProviderError("model_catalog", "agyのモデル一覧照会に失敗しました")
+                entries = response["command"]["data"]["models"]
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
+                raise ProviderError("model_catalog", "agyのモデル一覧が未対応の形式です") from exc
+        elif provider == "claude":
             argv = [
                 command,
                 "-p",

@@ -9,7 +9,7 @@ PaperpileのPDF・BibTeXから、図表を含む日本語要約を作り、Obsid
 1. ソース一式をC:内のフォルダへ置く。
 2. **setup.cmd** をダブルクリックする。Python・固定依存ライブラリ・設定ファイル・起動アイコンが用意され、GUIが開く。
 3. 開いた画面でPaperpile・BibTeX・Obsidian Vaultを選び、**このPCのパスを保存**。
-4. 使用するClaude Code CLI / Codex CLIを導入し、GUIの **Claudeにログイン** / **Codexにログイン** で認証する。
+4. 使用するClaude Code CLI / Codex CLI / Antigravity CLI（agy）を導入し、GUIの各ログインボタンで認証する。
 5. 「取り込み」でAI・モデルを選び、対象と保存先を確認して送信・保存を許可する。
 
 初回はインターネット接続が必要。既存の個人設定は上書きせず、PDF送信やVault書き込みを自動開始しない。更新後も `setup.cmd` を再実行できる。[導入手順とオプション](docs/setup.md)
@@ -31,7 +31,7 @@ PaperpileのPDF・BibTeXから、図表を含む日本語要約を作り、Obsid
 
 ## 動作
 
-Claude Code CLIにはPDFを直接添付し、Codex CLIには全ページ画像を添付する。同じ要約担当が本文・図表を読み、重要な図表を選んで日本語で説明する。FakeProviderでは外部通信なしで動作確認できる。
+Claude Code CLIにはPDFを直接添付し、Antigravity CLI（agy）には作業用PDFを直接読ませる。Codex CLIには全ページ画像を添付する。同じ要約担当が本文・図表を読み、重要な図表を選んで日本語で説明する。FakeProviderでは外部通信なしで動作確認できる。
 
 出力はPDFの凍結コピー、図表、日本語Source Note、Wiki統合提案、索引とログ。G:のPaperpile原本・既存の学術本文・人間ノート・`.obsidian/**`を変更しない。Paperpileからの削除をVaultへ連動させる機能はない。
 

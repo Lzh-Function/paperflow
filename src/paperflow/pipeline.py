@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from paperflow.agents.agy_cli import AgyCliProvider
 from paperflow.agents.base import AnalysisRequest, PDFDocument, ProviderError
 from paperflow.agents.claude_cli import ClaudeCliProvider
 from paperflow.agents.codex_cli import CodexCliProvider
@@ -17,7 +18,7 @@ from paperflow.models import digest
 from paperflow.obsidian.renderer import render_analysis, render_paper
 from paperflow.obsidian.writer import SafeWriter, WriteConflict, local_lock
 from paperflow.parsing.pdf_text import PARSER_VERSION, extract_pdf
-from paperflow.portable import analysis_key, bib_key, profile
+from paperflow.portable import analysis_key, bib_key, compatible_profiles, profile
 from paperflow.store import Store, now
 
 
@@ -34,6 +35,7 @@ class Pipeline:
             "fake": FakeProvider,
             "claude": lambda: ClaudeCliProvider(self.config),
             "codex": lambda: CodexCliProvider(self.config),
+            "agy": lambda: AgyCliProvider(self.config),
         }[name]()
 
     def scan(self, store: Store):
@@ -376,6 +378,7 @@ class Pipeline:
         expected_item=None,
         *,
         preserve_paper=False,
+        revalidate_only=False,
     ):
         config = self.config
         external = name != "fake"
@@ -482,12 +485,24 @@ class Pipeline:
             identity["visual_input"] = dict(
                 page_count=request.document.page_count,
                 max_selected_visuals=request.document.max_selected_visuals,
-                input_version="native-pdf-v1" if name == "claude" else "page-images-v1",
+                input_version={"claude": "native-pdf-v1", "agy": "native-pdf-readonly-v1"}.get(
+                    name, "page-images-v1"
+                ),
             )
         source_hash = digest(identity)
+        if revalidate_only:
+            from paperflow.response_recovery import revalidate_run
+
+            return revalidate_run(config, store, paper, request, identity)
         latest = store.latest_analysis(paper["paper_id"], source_hash)
         portable_key, portable_input = analysis_key(config, metadata, pdf_hash, request, name)
         latest = latest or store.portable_analysis(paper["paper_id"], portable_key)
+        if latest is None:
+            for compatible in compatible_profiles(portable_input["profile"])[1:]:
+                key = digest(dict(portable_input, profile=compatible))
+                latest = store.portable_analysis(paper["paper_id"], key)
+                if latest:
+                    break
         if latest is None:
             expected_legacy = dict(
                 bib=bib_key(metadata),
@@ -496,13 +511,16 @@ class Pipeline:
                 coverage=request.coverage,
                 schema="v2-visual" if request.document else SCHEMA_VERSION,
             )
-            legacy_key = digest(dict(legacy_fixed=expected_legacy))
-            latest = store.portable_analysis(paper["paper_id"], legacy_key)
+            for compatible in compatible_profiles(expected_legacy["profile"]):
+                legacy_key = digest(dict(legacy_fixed=dict(expected_legacy, profile=compatible)))
+                latest = store.portable_analysis(paper["paper_id"], legacy_key)
+                if latest:
+                    break
         analysis = None
         analyzed = 0
         if request.text.strip() or request.document is not None:
             if latest and not force:
-                analysis = dict(latest, data=json.loads(latest["output_json"]))
+                analysis = dict(latest, data=validate(json.loads(latest["output_json"]), request))
                 with store.transaction():
                     store.db.execute(
                         "INSERT OR IGNORE INTO analysis_aliases VALUES (?,?)",
@@ -556,7 +574,7 @@ class Pipeline:
                             "INSERT OR REPLACE INTO analysis_usage VALUES (?,?)",
                             (run_id, json.dumps(result.usage)),
                         )
-                validate(result.data, request)
+                result.data = validate(result.data, request)
                 output_dir = config.storage.data_dir / "analysis"
                 output_dir.mkdir(parents=True, exist_ok=True)
                 output_path = output_dir / f"{run_id}.json"

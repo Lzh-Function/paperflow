@@ -39,7 +39,9 @@ def base(identifier, kind, title, source_id, date):
 
 
 def safe_name(title):
-    text = re.sub(r'[<>:"/\\|?*\x00-\x1f\[\]#^]', " ", title)
+    # バッククォートはWiki検証器のinline-code除去でリンク先から消える。
+    # 原題はfrontmatterに保持し、リンクに使うファイル名だけから除く。
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f\[\]#^`]', " ", title)
     return " ".join(text.split())[:85].rstrip(". ") or "論文"
 
 

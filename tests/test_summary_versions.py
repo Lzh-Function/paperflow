@@ -55,7 +55,7 @@ def external(cfg):
     cfg.analysis.require_visual_reading = True
 
 
-@pytest.mark.parametrize("backend", ["claude", "codex"])
+@pytest.mark.parametrize("backend", ["claude", "codex", "agy"])
 def test_selected_reanalysis_preserves_active_note_state_figures_and_excludes_normal_batch(
     registered,
     backend,

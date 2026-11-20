@@ -71,6 +71,68 @@ def bundle_for(cfg, name="bundle"):
     return path, plan
 
 
+@pytest.mark.parametrize("title", ["``Synthetic quoted paper''", "Synthetic `quoted` paper"])
+def test_backtick_title_has_resolvable_proposal_links(wiki_config, title):
+    import re
+
+    cfg = wiki_config
+    item = cached_items(cfg)[0]
+    item["metadata"]["title"] = title
+    bundle = cfg.storage.data_dir.parent / "quoted-title"
+    plan = prepare(cfg, [item], bundle)
+    name = plan["registered"][0]["note"]
+    assert "`" not in name
+    stage = bundle / "preview"
+    note = stage / name
+    fm = yaml.safe_load(note.read_text(encoding="utf-8").split("---", 2)[1])
+    assert fm["title"] == title
+    proposal = next((stage / "70_Review/Merge_Proposals").glob("*.md"))
+    # Vaultと同様、inline codeを除いてから本文のWikiリンクを解決する。
+    body = proposal.read_text(encoding="utf-8").split("---", 2)[2]
+    body = re.sub(r"`[^`\n]*`", "", body)
+    refs = re.findall(r"\[\[([^\]]+)\]\]", body)
+    assert name[:-3] in refs
+    assert all((stage / (ref + ".md")).is_file() for ref in refs)
+
+
+def test_failed_validation_keeps_analysis_and_resume_uses_cache(wiki_config, monkeypatch):
+    from paperflow.store import Store
+
+    cfg = wiki_config
+    checker = cfg.destination.vault_dir / "scripts/check_changed.py"
+    checker.write_text(
+        "import json\nprint(json.dumps({'counts':{'error':1},'findings':["
+        "{'severity':'info','path':'note.md','message':'レビュー待ち'},"
+        "{'severity':'error','path':'proposal.md','message':'リンク切れ'}]}))\n",
+        encoding="utf-8",
+    )
+    original_vault = tree(cfg.destination.vault_dir)
+    with Store(cfg.storage.database, readonly=True) as store:
+        runs_before = store.rows("SELECT run_id,output_json FROM analysis_runs")
+    with pytest.raises(SettingsError, match="proposal.md: リンク切れ") as exc:
+        Pipeline(cfg).run()
+    assert "レビュー待ち" not in str(exc.value)
+    assert tree(cfg.destination.vault_dir) == original_vault
+    report = next((cfg.storage.data_dir / "wiki-bundles").glob("*/validation-error.json"))
+    assert json.loads(report.read_text(encoding="utf-8"))["counts"]["error"] == 1
+    with Store(cfg.storage.database, readonly=True) as store:
+        assert store.rows("SELECT run_id,output_json FROM analysis_runs") == runs_before
+        assert store.rows("SELECT * FROM exports") == []
+
+    checker.write_text(CONTROL, encoding="utf-8")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("保存済み解析の再利用でAIを呼び出しました")
+
+    monkeypatch.setattr(Pipeline, "_provider", forbidden)
+    result = Pipeline(cfg).run()
+    assert result["analyzed"] == 0
+    assert result["exported"] > 0
+    with Store(cfg.storage.database, readonly=True) as store:
+        assert store.rows("SELECT run_id,output_json FROM analysis_runs") == runs_before
+        assert store.rows("SELECT * FROM exports")
+
+
 def test_freeze_register_and_pending_notes_preserve_original_and_vault(wiki_config):
     cfg = wiki_config
     before_source = tree(cfg.source.paperpile_dir)

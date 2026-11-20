@@ -19,7 +19,12 @@ from paperflow.gui_service import GuiService
 from paperflow.gui_sync import SyncPanel
 from paperflow.library import FILTERS, filter_rows
 
-PROVIDERS = {"Claude Code CLI": "claude", "Codex CLI": "codex", "Fake（オフライン試験）": "fake"}
+PROVIDERS = {
+    "Claude Code CLI": "claude",
+    "Codex CLI": "codex",
+    "Antigravity CLI（agy）": "agy",
+    "Fake（オフライン試験）": "fake",
+}
 STATES = {
     "not_started": "未実行",
     "running": "実行中",
@@ -71,6 +76,7 @@ LABELS = {
     "model": "既定モデルID（空欄で未指定）",
     "claude_command": "Claude CLI",
     "codex_command": "Codex CLI",
+    "agy_command": "Antigravity CLI（agy）",
     "max_budget_usd": "Claudeの1論文予算（USD）",
     "max_output_bytes": "CLI応答の容量上限（バイト）",
     "interval_seconds": "監視の間隔（秒）",
@@ -528,6 +534,9 @@ class PaperFlowApp(SyncPanel):
             side="right",
             padx=8,
         )
+        self.revalidate_button = self.button(
+            buttons, "保存済み回答を再検証", self.revalidate_responses, side="right", padx=8
+        )
         body = ttk.Frame(detail)
         body.pack(fill="both", expand=True)
         self.library_detail = tk.Text(
@@ -717,6 +726,33 @@ class PaperFlowApp(SyncPanel):
         self.library_detail.yview_moveto(position)
         self._library_detail_text = text
         self._library_detail_id = identifier
+
+    def revalidate_responses(self):
+        ids = list(self.library_tree.selection())
+        if not ids:
+            messagebox.showinfo(
+                "保存済み回答の再検証", "再検証する論文を選んでください。", parent=self.root
+            )
+            return
+        if not messagebox.askyesno(
+            "保存済み回答の再検証",
+            f"選択した{len(ids)}本の保存済み回答を再検証します。\nAIへは送信せず、Obsidianには保存しません。\n検証を通過した回答は要約済み・未保存になります。続けますか？",
+            parent=self.root,
+        ):
+            return
+
+        def done(result):
+            self.status.set(
+                f"{len(result)}本の回答が検証を通過しました。取り込みを再開すると保存されます。追加のAI送信はありません。"
+            )
+            self.refresh_library()
+
+        provider, model = self.provider_code(), self.model_code()
+        self.submit(
+            "response_revalidate",
+            lambda: self.service.revalidate_responses(ids, provider, model),
+            done,
+        )
 
     def open_library_file(self, key):
         selected = self.library_tree.selection()
@@ -1057,6 +1093,7 @@ class PaperFlowApp(SyncPanel):
                 "summary_adopt": "選択した要約版をObsidianの正式版へ切り替えています",
                 "summary_compare": "本文と図表の比較を準備しています",
                 "summary_history": "要約の版を読み込んでいます",
+                "response_revalidate": "保存済み回答を再検証しています。AI送信・Vault保存は行いません",
                 "cloud": "共有フォルダの進捗を確認しています",
                 "cloud_close": "共有フォルダへ保存してから終了します",
             }.get(action, "処理中")

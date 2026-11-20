@@ -65,12 +65,12 @@ def model_options(command):
         command
     )
     return click.option(
-        "--provider", "provider_name", type=click.Choice(["fake", "claude", "codex"])
+        "--provider", "provider_name", type=click.Choice(["fake", "claude", "codex", "agy"])
     )(command)
 
 
 @app.command("select-model")
-@click.option("--provider", "provider_name", type=click.Choice(["fake", "claude", "codex"]))
+@click.option("--provider", "provider_name", type=click.Choice(["fake", "claude", "codex", "agy"]))
 @click.option("--dry-run", is_flag=True, help="保存済み候補だけを表示し、選択内容を保存しません。")
 @click.pass_context
 def select_model(ctx, provider_name, dry_run):
@@ -80,7 +80,7 @@ def select_model(ctx, provider_name, dry_run):
 
 
 @app.command()
-@click.option("--provider", type=click.Choice(["claude", "codex"]), required=True)
+@click.option("--provider", type=click.Choice(["claude", "codex", "agy"]), required=True)
 @click.option("--cached", is_flag=True, help="保存済み候補のみ読む。CLI照会・ファイル変更なし。")
 @click.pass_context
 def models(ctx, provider, cached):

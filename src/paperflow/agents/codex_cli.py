@@ -5,7 +5,7 @@ from pathlib import Path
 
 from paperflow.agents.base import AnalysisResult, ProviderError, authorize_request
 from paperflow.agents.process import checked_help, resolve_command, run_bounded
-from paperflow.agents.schema import make_prompt, schema_for, validate_response
+from paperflow.agents.schema import make_prompt, parse_response, schema_for, validate_response
 from paperflow.agents.usage import extract
 
 
@@ -98,18 +98,27 @@ class CodexCliProvider:
                 timeout=config.analysis.timeout_seconds,
                 max_bytes=config.analysis.max_output_bytes,
             )
+            usage = extract(self.name, raw)
+            elapsed = time.monotonic() - started
             try:
                 if output.stat().st_size > config.analysis.max_output_bytes:
                     raise ProviderError("output_limit", "Codex最終JSONが出力量上限を超えました")
-                data = json.loads(output.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise ProviderError(
-                    "invalid_json", "Codexの最終JSONファイルを取得できません"
-                ) from exc
-            usage = extract(self.name, raw)
-            elapsed = time.monotonic() - started
+                data = parse_response(output.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                error = ProviderError("invalid_json", "Codexの最終JSONファイルを取得できません")
+                error.usage, error.elapsed_seconds = usage, elapsed
+                raise error from exc
+            receipt = dict(
+                provider=self.name,
+                model=config.analysis.model,
+                input_kind="page_images" if request.document else "text",
+                pdf_sha256=request.document.sha256 if request.document else None,
+                page_count=request.document.page_count if request.document else 0,
+            )
             return AnalysisResult(
-                validate_response(data, request, usage=usage, elapsed_seconds=elapsed),
+                validate_response(
+                    data, request, usage=usage, elapsed_seconds=elapsed, input_receipt=receipt
+                ),
                 self.name,
                 config.analysis.model,
                 elapsed_seconds=elapsed,

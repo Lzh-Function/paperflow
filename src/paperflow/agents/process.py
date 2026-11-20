@@ -30,6 +30,15 @@ def classify_failure(stdout: str, stderr: str, exit_code: int) -> ProviderError:
             subtype = envelope.get("subtype", "")
             status = envelope.get("api_error_status")
             details = str(envelope.get("result", "")) + " " + str(envelope.get("errors", ""))
+            terminal = envelope.get("status")
+            if isinstance(terminal, str) and terminal in {
+                "ERROR",
+                "CANCELED",
+                "INTERRUPTED",
+                "INVALID",
+                "WAITING",
+            }:
+                details = str(envelope.get("error", ""))
     except json.JSONDecodeError:
         pass
     combined = (details + "\n" + stderr).lower()
@@ -51,6 +60,7 @@ def classify_failure(stdout: str, stderr: str, exit_code: int) -> ProviderError:
                 "login required",
                 "failed to authenticate",
                 "oauth session expired",
+                "authentication required",
             )
         )
         or re.search(r"(?:http|status|api error)\D{0,20}401\b", combined)
@@ -79,6 +89,14 @@ def classify_failure(stdout: str, stderr: str, exit_code: int) -> ProviderError:
 
 def resolve_command(command: str) -> str:
     resolved = shutil.which(command)
+    if (
+        os.name == "nt"
+        and command.lower() in {"agy", "agy.exe"}
+        and (not resolved or Path(resolved).suffix.lower() in {".cmd", ".bat", ".ps1"})
+    ):
+        candidate = Path.home() / "AppData/Local/agy/bin/agy.exe"
+        if candidate.is_file():
+            resolved = str(candidate)
     if not resolved:
         raise ProviderError(
             "missing_cli", "CLIがありません。インストールまたはcommand設定を確認してください"
@@ -97,7 +115,14 @@ def resolve_command(command: str) -> str:
 
 
 def run_bounded(
-    argv: list[str], *, cwd: Path, text="", timeout=240, max_bytes=2097152, env=None
+    argv: list[str],
+    *,
+    cwd: Path,
+    text="",
+    timeout=240,
+    max_bytes=2097152,
+    env=None,
+    include_stderr=False,
 ) -> str:
     with (
         tempfile.TemporaryFile() as out,
@@ -141,7 +166,7 @@ def run_bounded(
 
                     error.usage = extract("claude" if "--json-schema" in argv else "codex", stdout)
                 raise error
-            return stdout
+            return stdout + ("\n" + stderr if include_stderr and stderr else "")
         finally:
             stop_process(proc)
 
@@ -173,7 +198,8 @@ def stop_process(proc):
 
 
 def checked_help(command: str, args: list[str], required: list[str], cwd: Path):
-    text = run_bounded([command, *args, "--help"], cwd=cwd, timeout=20)
+    # agy（Goのflag）は正常な--helpもstderrへ出力する。
+    text = run_bounded([command, *args, "--help"], cwd=cwd, timeout=20, include_stderr=True)
     if any(flag not in text for flag in required):
         raise ProviderError(
             "cli_version", "必要なCLIオプションがありません。doctorでバージョンを確認してください"

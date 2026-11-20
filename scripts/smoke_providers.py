@@ -5,6 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
+from paperflow.agents.agy_cli import AgyCliProvider
 from paperflow.agents.base import AnalysisRequest, ProviderError
 from paperflow.agents.claude_cli import ClaudeCliProvider
 from paperflow.agents.codex_cli import CodexCliProvider
@@ -13,7 +14,11 @@ from paperflow.config import Analysis, Config, Destination, Source, Storage
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", choices=["claude", "codex"], action="append")
+    parser.add_argument("--provider", choices=["claude", "codex", "agy"], action="append")
+    parser.add_argument("--model", help="疎通試験に使用するモデルID")
+    parser.add_argument(
+        "--visual", action="store_true", help="合成した2ページの図付きPDFで試験する"
+    )
     parser.add_argument("--output", type=Path, default=Path(".data/provider-smoke.json"))
     args = parser.parse_args()
     results = []
@@ -23,7 +28,7 @@ def main():
             source=Source(paperpile_dir=root / "unused-source"),
             destination=Destination(vault_dir=root / "unused-vault"),
             storage=Storage(data_dir=root / "local", database=root / "state.db"),
-            analysis=Analysis(timeout_seconds=120, max_budget_usd=0.5),
+            analysis=Analysis(timeout_seconds=120, max_budget_usd=0.5, model=args.model),
         )
         request = AnalysisRequest(
             "synthetic",
@@ -35,9 +40,33 @@ def main():
             [],
             ["other"],
         )
-        for provider in args.provider or ["claude", "codex"]:
+        if args.visual:
+            import pymupdf
+
+            from paperflow.agents.base import PDFDocument
+            from paperflow.wiki.bundle import sha
+
+            pdf = root / "synthetic.pdf"
+            with pymupdf.open() as doc:
+                for i, color in enumerate([(1, 0, 0), (0, 0, 1)], 1):
+                    page = doc.new_page(width=400, height=400)
+                    page.draw_rect(pymupdf.Rect(60, 80, 300, 260), fill=color)
+                    page.insert_text((60, 285), f"Fig. {i} Synthetic visual")
+                doc.save(pdf)
+            config.analysis.allow_external_fulltext = True
+            config.analysis.policy = "fulltext_external"
+            request.document = PDFDocument(pdf, sha(pdf), 2, 3)
+            request.coverage = "fulltext"
+            request.pages_available = [1, 2]
+            request.text = "[page 1]\nFig. 1 Synthetic visual\n[page 2]\nFig. 2 Synthetic visual"
+            request.research_context = "合成図表の視覚読解試験。各ページの四角の色を、ページ番号とともに主な結果へ記録する。抽出本文には色がないので、PDFを視覚読解する。"
+        for provider in args.provider or ["claude", "codex", "agy"]:
             try:
-                cls = ClaudeCliProvider if provider == "claude" else CodexCliProvider
+                cls = {
+                    "claude": ClaudeCliProvider,
+                    "codex": CodexCliProvider,
+                    "agy": AgyCliProvider,
+                }[provider]
                 result = cls(config).analyze(request)
                 results.append(
                     dict(
@@ -46,6 +75,9 @@ def main():
                         coverage=result.data["coverage"],
                         elapsed_seconds=round(result.elapsed_seconds, 2),
                         model=result.model,
+                        usage=result.usage,
+                        findings=result.data["key_findings_ja"] if args.visual else None,
+                        visual_review=result.data.get("visual_review"),
                     )
                 )
             except ProviderError as exc:

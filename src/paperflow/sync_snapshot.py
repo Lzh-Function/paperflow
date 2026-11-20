@@ -414,15 +414,18 @@ def vault_ready(cfg):
 
 
 def export_ready(cfg, row):
-    path = Path(row["target_path"])
+    # DBに残る旧Drive表示名も、共有への書き出しと同じ規則で読み替える。
+    path = target(
+        cfg.destination.vault_dir, relative(row["target_path"], cfg.destination.vault_dir)
+    )
     if not path.is_file():
-        raise ValueError("Vaultのファイル同期待ちです：" + path.name)
+        raise ValueError("Vaultのファイル同期待ちです：" + str(path))
     if row["export_kind"] == "WikiSource":
         receipt = target(
             cfg.destination.vault_dir, f"00_System/PaperFlow/receipts/{row['paper_id']}.json"
         )
         if not receipt.is_file():
-            raise ValueError("Vaultの保存記録の同期待ちです")
+            raise ValueError("Vaultの保存記録の同期待ちです：" + str(receipt))
         data = json.loads(receipt.read_text(encoding="utf-8"))
         if data.get("paperflow_id") != row["paper_id"]:
             raise ValueError("Vaultの保存記録が一致しません")
@@ -431,9 +434,11 @@ def export_ready(cfg, row):
             raise ValueError("Vaultの保存記録に出典IDがありません")
         source_dir = "10_Papers/10_Sources/" + source_id.split(":", 1)[1]
         for name in ("source.pdf", "manifest.yml", "extracted.md", "extracted.json"):
-            if not target(cfg.destination.vault_dir, source_dir + "/" + name).is_file():
-                raise ValueError("Vaultの凍結出典の同期待ちです")
+            source = target(cfg.destination.vault_dir, source_dir + "/" + name)
+            if not source.is_file():
+                raise ValueError("Vaultの凍結出典の同期待ちです：" + str(source))
         # 原本PDFは全件再ハッシュせず、凍結ファイルの到着を確認する。
         for name in data.get("managed", {}):
-            if not target(cfg.destination.vault_dir, name).is_file():
-                raise ValueError("Vaultの図表/出典の同期待ちです：" + name)
+            managed = target(cfg.destination.vault_dir, name)
+            if not managed.is_file():
+                raise ValueError("Vaultの図表/出典の同期待ちです：" + str(managed))

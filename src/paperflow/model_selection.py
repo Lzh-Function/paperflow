@@ -21,8 +21,13 @@ from paperflow.agents.catalog import (
 from paperflow.config import SettingsError
 from paperflow.obsidian.writer import local_lock
 
-PROVIDERS = ("claude", "codex", "fake")
-LABELS = {"claude": "Claude Code CLI", "codex": "Codex CLI", "fake": "Fake（オフライン検証用）"}
+PROVIDERS = ("claude", "codex", "fake", "agy")
+LABELS = {
+    "claude": "Claude Code CLI",
+    "codex": "Codex CLI",
+    "agy": "Antigravity CLI（agy）",
+    "fake": "Fake（オフライン検証用）",
+}
 
 
 def read_json(path):
@@ -53,7 +58,7 @@ def preferences(config):
         if data.get("last_provider") not in PROVIDERS or not isinstance(data.get("models"), dict):
             raise ValueError("Provider設定が不正")
         for provider, value in data["models"].items():
-            if provider not in ("claude", "codex"):
+            if provider not in ("claude", "codex", "agy"):
                 raise ValueError("Provider設定が不正")
             model_id(value)
         return data
@@ -96,8 +101,8 @@ def cached_catalog(config, provider):
 
 
 def get_catalog(config, provider, *, cached_only=False):
-    if provider not in ("claude", "codex"):
-        raise SettingsError("モデル一覧はclaudeかcodexを指定してください")
+    if provider not in ("claude", "codex", "agy"):
+        raise SettingsError("モデル一覧はclaude・codex・agyを指定してください")
     if cached_only:
         catalog = cached_catalog(config, provider)
         if catalog is None:
@@ -193,7 +198,9 @@ def configure(
             raise SettingsError(str(exc)) from exc
     if provider == "fake":
         if model is not None:
-            raise click.UsageError("--modelには--provider claude または codexを指定してください")
+            raise click.UsageError(
+                "--modelには--provider claude・codex・agyのいずれかを指定してください"
+            )
         selected = None
     elif model is not None:
         try:

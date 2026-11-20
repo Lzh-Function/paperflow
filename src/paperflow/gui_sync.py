@@ -68,6 +68,7 @@ class SyncPanel:
         self.button(
             row, "Codexにログイン", lambda: self.cloud_cli_login("codex"), side="left", padx=6
         )
+        self.button(row, "agyにログイン", lambda: self.cloud_cli_login("agy"), side="left", padx=6)
         ttk.Label(frame, text="2. Drive内の専用共有フォルダを選ぶ", style="Heading.TLabel").pack(
             anchor="w", pady=(16, 6)
         )
@@ -173,6 +174,8 @@ class SyncPanel:
         error = self.service.sync_error()
         if error:
             self.cloud_result.set("前回停止した理由：" + error["message"])
+        elif self.cloud_result.get().startswith("前回停止した理由："):
+            self.cloud_result.set("共有ファイルの受信・更新が完了しました。")
         self.cloud_status.set(text)
 
     def cloud_done(self, result=None):
@@ -211,7 +214,9 @@ class SyncPanel:
                 raise SyncError("CLIログイン画面はWindows版で開いてください")
             cfg = self.service.config()
             command = resolve_command(getattr(cfg.analysis, provider + "_command"))
-            args = ["auth", "login"] if provider == "claude" else ["login"]
+            args = {"claude": ["auth", "login"], "codex": ["login"], "agy": ["acp", "--login"]}[
+                provider
+            ]
             subprocess.Popen(
                 [command, *args],
                 cwd=self.service.path.parent,

@@ -124,9 +124,10 @@ def asset_path(cfg, run_id, asset):
 
 
 def _build(cfg, store, ctx, run):
+    from paperflow.agents.schema import normalize_response
     from paperflow.resources.wiki_extract_visuals import extract_visuals
 
-    data = json.loads(run["output_json"])
+    data = normalize_response(json.loads(run["output_json"]))
     # Windowsの260文字制限に備え、図表フォルダ名は短縮IDにする。
     subdir = "figures/pfv-" + run["run_id"][:16]
     visuals = dict(assets=[], recipe=None)

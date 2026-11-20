@@ -14,7 +14,7 @@ from paperflow.gui_config import save_changes
 from paperflow.gui_service import GuiService
 from paperflow.pipeline import Pipeline
 from paperflow.store import Store
-from paperflow.sync_snapshot import capture, materialize, packed, unpack
+from paperflow.sync_snapshot import capture, materialize, packed, unpack, vault_ready
 
 
 def test_drive_display_name_alias_is_limited_to_drive_root():
@@ -100,3 +100,51 @@ def test_failed_snapshot_does_not_leave_half_initialized_shared_folder(tmp_path,
     assert not folder.exists()
     service.record_sync_error("合成の書き出しエラー")
     assert "書き出し" in service.sync_error()["message"]
+
+
+@pytest.mark.parametrize("missing", [None, "note", "receipt", "pdf", "proposal"])
+def test_vault_arrival_check_handles_renamed_roots_and_still_reports_real_missing_files(
+    tmp_path,
+    monkeypatch,
+    missing,
+):
+    service = GuiService(gui_config(tmp_path))
+    planned = service.prepare("count", 1)
+    service.run(planned["plan"], "fake", None)
+    old = service.config()
+    with Store(old.storage.database, readonly=True) as store:
+        exported = store.rows("SELECT * FROM exports WHERE export_kind='WikiSource'")[0]
+    receipt_relative = f"00_System/PaperFlow/receipts/{exported['paper_id']}.json"
+    import json
+
+    receipt = json.loads((old.destination.vault_dir / receipt_relative).read_text(encoding="utf-8"))
+    new = tmp_path / "My Drive" / "Vault"
+    new.parent.mkdir()
+    shutil.move(old.destination.vault_dir, new)
+    cfg = save_changes(service.path, {"destination.vault_dir": str(new)})
+    actual = drive_paths.drive_path
+
+    def alias(value):
+        path = Path(value)
+        if path.is_relative_to(old.destination.vault_dir):
+            return str(new / path.relative_to(old.destination.vault_dir))
+        return actual(value)
+
+    monkeypatch.setattr(drive_paths, "drive_path", alias)
+    source_dir = "10_Papers/10_Sources/" + receipt["source_id"].split(":", 1)[1]
+    missing_paths = dict(
+        note=new / Path(exported["target_path"]).relative_to(old.destination.vault_dir),
+        receipt=new / receipt_relative,
+        pdf=new / source_dir / "source.pdf",
+        proposal=new / next(p for p in receipt["managed"] if p.startswith("70_Review/")),
+    )
+    if missing:
+        missing_paths[missing].unlink()
+    before = cfg.storage.database.read_bytes()
+    if missing:
+        with pytest.raises(ValueError, match="同期待ち") as error:
+            vault_ready(cfg)
+        assert str(missing_paths[missing]) in str(error.value)
+    else:
+        vault_ready(cfg)
+    assert cfg.storage.database.read_bytes() == before

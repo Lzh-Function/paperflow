@@ -54,7 +54,7 @@ class Analysis(StrictModel):
         ),
         max_length=10000,
     )
-    default_provider: Literal["fake", "claude", "codex"] = "fake"
+    default_provider: Literal["fake", "claude", "codex", "agy"] = "fake"
     policy: Literal["abstract_only", "fulltext_external"] = "abstract_only"
     allow_external_fulltext: bool = False
     require_visual_reading: bool = True
@@ -74,6 +74,7 @@ class Analysis(StrictModel):
     model: str | None = None
     claude_command: str = "claude"
     codex_command: str = "codex"
+    agy_command: str = "agy"
     max_output_bytes: int = Field(default=2097152, ge=1024, le=16777216)
     max_budget_usd: float = Field(default=0.5, gt=0, le=100)
 

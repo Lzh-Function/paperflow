@@ -1,5 +1,7 @@
 # PaperFlow — Windows Native Paperpile → Obsidian Research Ingestion
 
+> **2026-11-20のProvider追加:** Antigravity CLI（agy）を第3の外部Providerとして共通のモデル選択・日本語解析・JSON検証・要約版管理・PC間同期へ接続する。PDF直接入力を優先し、agyは公式ACPからC:の同一PDFコピー全体のread_fileだけを許可する。PDF読み取り完了なし・追加権限・他ツールは停止する。ClaudeのPDF添付、Codexの全ページ画像は維持する。詳細は [agyの設定](agy.md)。
+
 > **2026-11-18の要約版管理追補:** 通常バッチの登録済み除外を保持し、GUIの論文一覧で明示選択した論文だけを、ジョブ単位のProvider/モデルで再要約できる。本文・選択図表・解析来歴を版ごとに保持し、候補生成と正式版への切り替えを分離する。手動編集・Wiki統合済み出典は自動上書きしない。保存済み回答の再送なし復旧と、版履歴のPC間同期を提供する。詳細は [要約の版管理](summary-versions.md)。
 
 > **2026-11-18の仕様追補:** PC間同期はGoogle Driveデスクトップ版が配送する専用共有フォルダを使う。独自Drive API・OAuthは使用しない。論理DB・解析JSON・固定バッチを共有し、起動時受信・論文ごとの保存・共有フォルダへ保存して終了をGUIで提供する。起動後は利用者がDrive同期完了を確認するまでAI/Vault/共有先への書き込みを許可しない。クラウドの最新状態・送信完了は自動判定しない。詳細は [PC間同期](multi-pc-sync.md)。管理主題語は従来の`topics`に加え、Obsidianの`tags`へ`topic/<slug>`として併記する。

@@ -12,7 +12,8 @@ from paperflow.gui_config import save_changes
 
 
 @pytest.mark.skipif(os.name != "nt", reason="WindowsネイティブGUI")
-def test_native_gui_selected_reanalysis_comparison_and_adoption(tmp_path, monkeypatch):
+@pytest.mark.parametrize("backend", ["claude", "agy"])
+def test_native_gui_selected_reanalysis_comparison_and_adoption(tmp_path, monkeypatch, backend):
     if not os.environ.get("PAPERFLOW_SUMMARY_GUI_CHILD"):
         result = subprocess.run(
             [
@@ -22,7 +23,10 @@ def test_native_gui_selected_reanalysis_comparison_and_adoption(tmp_path, monkey
                 "utf8",
                 "-m",
                 "pytest",
-                __file__ + "::test_native_gui_selected_reanalysis_comparison_and_adoption",
+                __file__
+                + "::test_native_gui_selected_reanalysis_comparison_and_adoption["
+                + backend
+                + "]",
                 "-q",
                 "--tb=short",
             ],
@@ -89,7 +93,7 @@ def test_native_gui_selected_reanalysis_comparison_and_adoption(tmp_path, monkey
         assert isinstance(dialog, SummaryDialog)
         assert len(dialog.paper_ids) == 2 and len(dialog.tree.get_children()) == 1
         original_id = dialog.data["current"]
-        dialog.provider.set("Claude Code CLI")
+        dialog.provider.set({"claude": "Claude Code CLI", "agy": "Antigravity CLI（agy）"}[backend])
         dialog.change_provider()
         dialog.model.set("合成の指定モデル")
         provider = VisualProvider("合成の指定モデル")

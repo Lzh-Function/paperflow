@@ -434,7 +434,7 @@ def test_native_gui_prepare_and_offline_import(tmp_path, monkeypatch):
         assert not errors, errors
 
     try:
-        assert len(app.fields) == 39
+        assert len(app.fields) == 40
         root.deiconify()
         root.update()
         assert (

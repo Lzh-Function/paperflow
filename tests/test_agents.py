@@ -20,6 +20,25 @@ def request_data():
 
 
 @pytest.mark.parametrize(
+    "wrapper", [lambda s: s, lambda s: "\ufeff" + s, lambda s: "```json\n" + s + "\n```"]
+)
+def test_json_representation_wrappers_are_supported(wrapper):
+    from paperflow.agents.schema import parse_response
+
+    assert parse_response(wrapper('{"message":"合成回答"}')) == {"message": "合成回答"}
+
+
+@pytest.mark.parametrize(
+    "text", ['{"a":1,"a":2}', '{"a":NaN}', '{"a":Infinity}', "{}\n{}", "回答: {}", '{"a":1,}']
+)
+def test_ambiguous_json_is_not_silently_repaired(text):
+    from paperflow.agents.schema import parse_response
+
+    with pytest.raises(ValueError):
+        parse_response(text)
+
+
+@pytest.mark.parametrize(
     "field,value",
     [
         ("priority", 6),

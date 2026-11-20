@@ -325,7 +325,10 @@ def load(config, path):
 def runtime_key(config):
     return digest(
         dict(
-            analysis=config.analysis.model_dump(mode="json"),
+            analysis=config.analysis.model_dump(
+                mode="json",
+                exclude={"agy_command"} if config.analysis.default_provider != "agy" else set(),
+            ),
             taxonomy=config.taxonomy(),
             visuals=config.destination.visual_max_items,
             prompt=PROMPT + VISUAL_PROMPT,
@@ -472,10 +475,21 @@ def execute(
         key = digest(profile(config)) if data.get("portable_runtime") else runtime_key(config)
         if progress_path.exists():
             progress = json.loads(progress_path.read_text(encoding="utf-8"))
-            if progress.get("plan_sha256") != plan_hash or progress.get("runtime_key") != key:
+            from paperflow.portable import compatible_profiles
+
+            allowed_keys = (
+                {digest(p) for p in compatible_profiles(profile(config))}
+                if data.get("portable_runtime")
+                else {key}
+            )
+            if (
+                progress.get("plan_sha256") != plan_hash
+                or progress.get("runtime_key") not in allowed_keys
+            ):
                 raise WriteConflict(
                     "バッチ計画・Provider・モデル・解析設定が前回と違います。別の計画を作成してください"
                 )
+            progress["runtime_key"] = key
         else:
             if report.exists():
                 raise WriteConflict("管理外の既存バッチレポートは上書きしません")

@@ -53,7 +53,7 @@ def initialize(project):
         if project.is_relative_to(protected):
             raise SettingsError("アプリはPaperpile・Vaultの外に置いてください")
     providers = {}
-    for provider in ("claude", "codex"):
+    for provider in ("claude", "codex", "agy"):
         try:
             providers[provider] = resolve_command(getattr(cfg.analysis, provider + "_command"))
         except ProviderError:

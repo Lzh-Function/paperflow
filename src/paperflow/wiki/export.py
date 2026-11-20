@@ -96,7 +96,14 @@ def validate_changed(stage, paths, *, attachment_root=None):
             args += ["--attachment-root", str(attachment_root)]
         result = run_script(stage, "check_changed.py", args, expect_json=True)
         if result["counts"]["error"]:
-            raise SettingsError(f"変更ファイル検証に失敗しました: {result['findings'][:3]}")
+            report_path = stage.parent / "validation-error.json"
+            json_write(report_path, result)
+            errors = [f for f in result["findings"] if f.get("severity") == "error"]
+            detail = " / ".join(f"{f['path']}: {f['message']}" for f in errors[:3])
+            raise SettingsError(
+                f"変更ファイル検証に失敗しました（{result['counts']['error']}件）: "
+                f"{detail}。詳細: {report_path}。保存済み解析は保持されています"
+            )
         return {"check_changed.py": result}
     reports = {}
     for script in [
@@ -272,6 +279,18 @@ def prepare(config, items, bundle, *, upgrade=False):
                 frozen_guards[(directory / name).as_posix()] = sha(src)
                 shutil.copyfile(src, target(stage, (directory / name).as_posix()))
         payload = json.loads((stage / directory / "extracted.json").read_text(encoding="utf-8"))
+        data = validate(
+            data,
+            AnalysisRequest(
+                paper["paper_id"],
+                {},
+                "",
+                data["coverage"],
+                list(range(1, payload["page_count"] + 1)),
+                config.taxonomy(),
+            ),
+        )
+        item = dict(item, analysis=dict(run, data=data))
         visuals = []
         if is_new and config.destination.include_visuals:
             from paperflow.resources.wiki_extract_visuals import extract_visuals
@@ -294,17 +313,6 @@ def prepare(config, items, bundle, *, upgrade=False):
             raise WriteConflict("既存抽出物がPDFハッシュと一致しません")
         if payload.get("source_id") != sid:
             raise WriteConflict("抽出物の出典IDがmanifestと一致しません")
-        validate(
-            data,
-            AnalysisRequest(
-                paper["paper_id"],
-                {},
-                "",
-                data["coverage"],
-                list(range(1, payload["page_count"] + 1)),
-                config.taxonomy(),
-            ),
-        )
         existing = [p for p in note_files if front(p).get("source_id") == sid]
         if len(existing) > 1:
             raise WriteConflict("同じ出典のSource Noteが複数あります")

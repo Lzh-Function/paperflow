@@ -78,10 +78,15 @@ def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monk
         app.drive_checked.set(False)
         app.cloud_uncheck()
         assert not app.service.progress_confirmed()
+        app.service.record_sync_error("合成の以前の同期エラー")
+        app.cloud_refresh()
+        assert "合成の以前の同期エラー" in app.cloud_result.get()
         app.drive_checked.set(True)
         app.cloud_confirm()
         pump(lambda: not app.busy)
         assert app.service.progress_confirmed()
+        assert app.service.sync_error() is None
+        assert "合成の以前の同期エラー" not in app.cloud_result.get()
         app.close()
         assert app.busy
         pump(lambda: app._closed)

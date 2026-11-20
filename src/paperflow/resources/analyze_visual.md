@@ -7,4 +7,6 @@
 
 visual_review.selected_visualsには、要約の理解に役立つ図表を最大visual_input.max_selected_visuals件選んでください。最初の図を機械的に選ぶのではなく、研究の構成・主な結果を説明できるものを優先します。図表がなければ空配列で構いません。pageはPDFビューアのページ、numberは図表番号（不明ならnull）、kindはfigure/table/pageです。
 
+図表番号は1のような整数、または"4.4"、"4.10"、"A.1"、"S2"、"2(a)"のような文字列で保持してください。小数として丸めず、論文の番号を区別します。title_jaにも元の図表番号を含めてください。同じPDFページの別図表をまとめないでください。finding_indicesは1始まりの整数配列で、実際に返した所見数の範囲内にします。pages_viewedとfinding_indicesに同じ番号を重ねないでください。
+
 title_jaは短い日本語の表示名、explanation_jaは何が描かれ、どの結果の理解に役立つかを日本語で説明してください。図の観察と著者の主張を区別し、判読できない数値を埋めないでください。finding_indicesには関連するkey_findings_jaの番号を1始まりで入れます。uncertainty_jaに判読の限界を書きます。AIの視覚読解は人間の原典照合済み・verifiedを意味しません。

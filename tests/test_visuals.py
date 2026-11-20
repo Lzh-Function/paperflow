@@ -94,3 +94,53 @@ def test_media_write_scope_stays_in_derived_assets():
     assert allowed_write("10_Papers/10_Sources/test/figures/paperflow-visuals-v1/visuals.json")
     assert not allowed_write("10_Papers/10_Sources/test/figures/paperflow-visuals-v1/run.exe")
     assert not allowed_write("10_Papers/10_Sources/test/figures/arbitrary/user.png")
+
+
+def test_compound_captions_match_distinct_crops_and_safe_filenames(tmp_path):
+    pdf = tmp_path / "source.pdf"
+    labels = ["4.4", "4.5", "4.10", "A.1", "S2", "2(a)"]
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=600, height=850)
+        for i, label in enumerate(labels):
+            y = 40 + i * 130
+            page.draw_rect(pymupdf.Rect(50, y, 250, y + 70), fill=(i / 6, 0.4, 0.6))
+            page.insert_text((50, y + 85), f"Figure {label}: Synthetic result", fontsize=8)
+        doc.save(pdf)
+    selections = [dict(page=1, kind="figure", number=label) for label in labels]
+    data = extract_visuals(
+        pdf,
+        tmp_path / "figures",
+        expected_sha256=sha(pdf),
+        source_id="paper:test",
+        maximum=8,
+        selections=selections,
+    )
+    assert [v["number"] for v in data["items"]] == labels
+    assert all(v["mode"] == "crop" for v in data["items"])
+    assert len({v["file"] for v in data["items"]}) == len(labels)
+    for item in data["items"]:
+        assert allowed_write(
+            "10_Papers/10_Sources/test/figures/paperflow-visuals-v1/" + item["file"]
+        )
+
+
+def test_multiple_unlocated_selections_keep_separate_descriptions_and_assets(tmp_path):
+    pdf = tmp_path / "source.pdf"
+    figure_pdf(pdf)
+    selections = [
+        dict(page=1, kind="figure", number=None, title_ja=title)
+        for title in ["番号不明の図", "別の番号不明の図"]
+    ]
+    output = tmp_path / "figures"
+    data = extract_visuals(
+        pdf, output, expected_sha256=sha(pdf), source_id="paper:test", selections=selections
+    )
+    assert len({item["file"] for item in data["items"]}) == 2
+    assert [v["selection"] for v in data["items"]] == selections
+    assert all(v["mode"] == "page-context" for v in data["items"])
+    assert (
+        extract_visuals(
+            pdf, output, expected_sha256=sha(pdf), source_id="paper:test", selections=selections
+        )
+        == data
+    )

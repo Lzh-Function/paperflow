@@ -112,6 +112,61 @@ def test_cached_visual_analysis_can_be_validated_for_export(visual_request):
     assert validate(data, replace(visual_request, document=None)) == data
 
 
+@pytest.mark.parametrize("label", ["4.4", "4.10", "A.1", "S2", "IV", "2(a)", 2, None])
+def test_compound_visual_numbers_are_valid(visual_request, label):
+    data = visual_data(visual_request)
+    data["visual_review"]["selected_visuals"][0]["number"] = label
+    assert validate(data, visual_request)["visual_review"]["selected_visuals"][0]["number"] == label
+
+
+def test_same_page_compound_and_unknown_figures_do_not_collide(visual_request):
+    from copy import deepcopy
+
+    data = visual_data(visual_request)
+    first = data["visual_review"]["selected_visuals"][0]
+    first.update(number=None, title_ja="Figure 4.4: 合成結果")
+    second = dict(deepcopy(first), title_ja="Figure 4.5: 別の合成結果")
+    data["visual_review"]["selected_visuals"].append(second)
+    normalized = validate(data, visual_request)
+    assert [v["number"] for v in normalized["visual_review"]["selected_visuals"]] == ["4.4", "4.5"]
+    assert first["number"] is None  # 不採用の元回答を破壊しない
+    first["title_ja"], second["title_ja"] = "番号不明の図", "別の番号不明の図"
+    assert len(validate(data, visual_request)["visual_review"]["selected_visuals"]) == 2
+
+
+def test_redundant_pages_and_references_are_normalized_without_inventing_pages(visual_request):
+    from copy import deepcopy
+
+    data = visual_data(visual_request)
+    data["visual_review"]["pages_viewed"] = ["1", 2, "2"]
+    selection = data["visual_review"]["selected_visuals"][0]
+    selection.update(page="2", number="Fig. 2", finding_indices=[1, "1"])
+    data["visual_review"]["selected_visuals"].append(deepcopy(selection))
+    result = validate(data, visual_request)
+    assert result["visual_review"]["pages_viewed"] == [1, 2]
+    assert len(result["visual_review"]["selected_visuals"]) == 1
+    assert result["visual_review"]["selected_visuals"][0]["finding_indices"] == [1]
+    assert result["uncertainties_ja"] != data["uncertainties_ja"]
+    assert validate(result, visual_request) == result
+    data["visual_review"]["pages_viewed"] = ["1", "1"]
+    with pytest.raises(ProviderError, match="未確認ページ"):
+        validate(data, visual_request)
+
+
+@pytest.mark.parametrize("bad", [None, [], "text", 1, True])
+def test_non_object_ai_output_is_a_diagnostic_error(visual_request, bad):
+    with pytest.raises(ProviderError, match="最上位"):
+        validate(bad, visual_request)
+
+
+@pytest.mark.parametrize("bad", [4.4, True, "../bad", "4/5", "", 0])
+def test_ambiguous_or_unsafe_numbers_are_not_guessed(visual_request, bad):
+    data = visual_data(visual_request)
+    data["visual_review"]["selected_visuals"][0]["number"] = bad
+    with pytest.raises(ProviderError, match="number"):
+        validate(data, visual_request)
+
+
 def test_visual_rejection_explains_reason_and_retains_usage(visual_request):
     data = visual_data(visual_request)
     data["visual_review"].update(status="unable", reason_ja="ページ2の図が判読できません。")
