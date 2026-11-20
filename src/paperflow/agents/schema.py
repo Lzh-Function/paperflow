@@ -6,6 +6,7 @@ from importlib.resources import files
 from jsonschema import Draft7Validator
 
 from paperflow.agents.base import AnalysisRequest, ProviderError
+from paperflow.agents.json_response import parse_response as parse_response
 from paperflow.resources.wiki_extract_visuals import (
     NUMBER_PATTERN,
     canonical_number,
@@ -72,30 +73,6 @@ VISUAL_SCHEMA["properties"]["visual_review"] = {
 
 def schema_for(request):
     return VISUAL_SCHEMA if request.document is not None else SCHEMA
-
-
-def parse_response(text):
-    """BOMと単一JSONフェンスだけを除く。曖昧なJSONを推測して補完しない。"""
-    text = text.lstrip("\ufeff").strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, flags=re.S | re.I)
-    if fenced:
-        text = fenced[1]
-
-    def pairs(items):
-        result = {}
-        for key, value in items:
-            if key in result:
-                raise ValueError(f"JSONのキーが重複しています: {key}")
-            result[key] = value
-        return result
-
-    def invalid(value):
-        raise ValueError(f"JSONに非有限数があります: {value}")
-
-    try:
-        return json.loads(text, object_pairs_hook=pairs, parse_constant=invalid)
-    except RecursionError as exc:
-        raise ValueError("JSONの入れ子が深すぎます") from exc
 
 
 def normalize_response(data):
@@ -233,7 +210,9 @@ def validate(data: dict, request: AnalysisRequest) -> dict:
     return data
 
 
-def validate_response(data, request, *, usage, elapsed_seconds, input_receipt=None):
+def validate_response(
+    data, request, *, usage, elapsed_seconds, input_receipt=None, raw_response=None
+):
     """採用できない回答でも、取得済みの消費量と所要時間を失わない。"""
     try:
         return validate(data, request)
@@ -242,6 +221,8 @@ def validate_response(data, request, *, usage, elapsed_seconds, input_receipt=No
         exc.elapsed_seconds = elapsed_seconds
         exc.rejected_response = data
         exc.input_receipt = input_receipt
+        if raw_response is not None:
+            exc.raw_response = raw_response
         raise
 
 

@@ -4,8 +4,9 @@ import time
 from pathlib import Path
 
 from paperflow.agents.base import AnalysisResult, ProviderError, authorize_request
+from paperflow.agents.json_response import parse_analysis_response, response_error
 from paperflow.agents.process import checked_help, resolve_command, run_bounded
-from paperflow.agents.schema import make_prompt, parse_response, schema_for, validate_response
+from paperflow.agents.schema import make_prompt, schema_for, validate_response
 from paperflow.agents.usage import extract
 
 
@@ -100,14 +101,6 @@ class CodexCliProvider:
             )
             usage = extract(self.name, raw)
             elapsed = time.monotonic() - started
-            try:
-                if output.stat().st_size > config.analysis.max_output_bytes:
-                    raise ProviderError("output_limit", "Codex最終JSONが出力量上限を超えました")
-                data = parse_response(output.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                error = ProviderError("invalid_json", "Codexの最終JSONファイルを取得できません")
-                error.usage, error.elapsed_seconds = usage, elapsed
-                raise error from exc
             receipt = dict(
                 provider=self.name,
                 model=config.analysis.model,
@@ -115,9 +108,26 @@ class CodexCliProvider:
                 pdf_sha256=request.document.sha256 if request.document else None,
                 page_count=request.document.page_count if request.document else 0,
             )
+            response = None
+            try:
+                if output.stat().st_size > config.analysis.max_output_bytes:
+                    raise ProviderError("output_limit", "Codex最終JSONが出力量上限を超えました")
+                response = output.read_text(encoding="utf-8")
+                data = parse_analysis_response(response)
+            except (OSError, ValueError) as exc:
+                error = response_error(
+                    "Codexの最終JSONファイルを読み取れません", exc, raw=response, receipt=receipt
+                )
+                error.usage, error.elapsed_seconds = usage, elapsed
+                raise error from exc
             return AnalysisResult(
                 validate_response(
-                    data, request, usage=usage, elapsed_seconds=elapsed, input_receipt=receipt
+                    data,
+                    request,
+                    usage=usage,
+                    elapsed_seconds=elapsed,
+                    input_receipt=receipt,
+                    raw_response=response,
                 ),
                 self.name,
                 config.analysis.model,

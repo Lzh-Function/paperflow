@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from paperflow.agents.base import AnalysisResult, ProviderError, authorize_request
+from paperflow.agents.json_response import parse_analysis_response, response_error
 from paperflow.agents.process import checked_help, classify_failure, resolve_command, run_bounded
 from paperflow.agents.schema import make_prompt, parse_response, schema_for, validate_response
 from paperflow.agents.usage import claude_usage
@@ -135,6 +136,19 @@ class ClaudeCliProvider:
                 max_bytes=config.analysis.max_output_bytes,
                 env=env,
             )
+            receipt = dict(
+                provider=self.name,
+                model=config.analysis.model,
+                input_kind="native_pdf" if request.document else "text",
+                pdf_sha256=request.document.sha256 if request.document else None,
+                page_count=request.document.page_count if request.document else 0,
+                serialized_input_bytes=len(prompt.encode("utf-8")),
+                duplicate_fulltext=False,
+                preparation=preparation,
+                input_parts=input_parts,
+            )
+            envelope = {}
+            response = None
             try:
                 if request.document is not None:
                     results = [parse_response(line) for line in raw.splitlines() if line.strip()]
@@ -148,7 +162,8 @@ class ClaudeCliProvider:
                     raise error
                 data = envelope["structured_output"]
                 if isinstance(data, str):
-                    data = parse_response(data)
+                    response = data
+                    data = parse_analysis_response(data)
             except (
                 ValueError,
                 KeyError,
@@ -156,28 +171,29 @@ class ClaudeCliProvider:
                 AttributeError,
                 StopIteration,
             ) as exc:
-                raise ProviderError(
-                    "invalid_json", "Claudeのstructured_outputを取得できません"
-                ) from exc
+                error = response_error(
+                    "Claudeのstructured_outputを読み取れません",
+                    exc,
+                    raw=response if response is not None else raw,
+                    receipt=receipt,
+                )
+                error.usage = claude_usage(envelope) if isinstance(envelope, dict) else None
+                error.elapsed_seconds = time.monotonic() - started
+                raise error from exc
             models = envelope.get("modelUsage")
             model = config.analysis.model
             if model is None and isinstance(models, dict) and len(models) == 1:
                 model = next(iter(models))
             usage = claude_usage(envelope)
             elapsed = time.monotonic() - started
-            receipt = dict(
-                provider=self.name,
-                model=model,
-                input_kind="native_pdf" if request.document else "text",
-                pdf_sha256=request.document.sha256 if request.document else None,
-                page_count=request.document.page_count if request.document else 0,
-                serialized_input_bytes=len(prompt.encode("utf-8")),
-                duplicate_fulltext=False,
-                preparation=preparation,
-                input_parts=input_parts,
-            )
+            receipt["model"] = model
             data = validate_response(
-                data, request, usage=usage, elapsed_seconds=elapsed, input_receipt=receipt
+                data,
+                request,
+                usage=usage,
+                elapsed_seconds=elapsed,
+                input_receipt=receipt,
+                raw_response=response if response is not None else raw,
             )
             if preparation == "images_150dpi_jpeg85":
                 data["uncertainties_ja"].append(

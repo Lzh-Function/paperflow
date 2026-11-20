@@ -257,6 +257,10 @@ def prepare(config, items, bundle, *, upgrade=False):
     new_dirs = []
     derived_assets = []
     frozen_guards = {}
+    if (stage / "00_System/Index/論文データベース.md").is_file():
+        from paperflow.wiki.database import copy_database_dependencies
+
+        frozen_guards.update(copy_database_dependencies(root, stage))
     changed_notes = []
     registered = []
     for item in items:
@@ -452,6 +456,9 @@ def prepare(config, items, bundle, *, upgrade=False):
     original_intake = intake.read_bytes() if intake.exists() else None
     if changed_notes or upgrade:
         run_script(stage, "update_index.py")
+    database = "00_System/Index/論文データベース.md"
+    if (stage / database).is_file() and sha(stage / database) != before.get(database):
+        changed_notes.append(database)
     # このフローはDropboxを変更しない。疎なpreviewの入庫状況で索引を上書きしない。
     if original_intake is not None:
         intake.write_bytes(original_intake)

@@ -25,6 +25,8 @@ PaperpileのPDF・BibTeXから、図表を含む日本語要約を作り、Obsid
 
 「論文一覧」では取り込み済み・未処理・失敗を検索・絞り込みでき、PDFや保存済みノートを開ける。実行中も閲覧できる。
 
+Obsidianでは `Ctrl+O` から **論文データベース** を開く。登録済み論文を発行年・著者・主題・タグで探せる。論文の保存時に自動更新される。[データベースの使い方](docs/paper-database.md)
+
 停止後は同じ一覧から再開できる。コマンド操作は [CLI操作マニュアル](docs/cli-usage.md) を参照。
 
 自宅PCとラボPCで続きから使う場合は、**PC間同期** タブでDrive内の共有フォルダを選ぶ。Google Cloud・OAuth設定は不要。PC切り替え時にDriveの同期完了を確認する。[PC間同期の初期設定](docs/multi-pc-sync.md)
@@ -46,6 +48,7 @@ Claude Code CLIにはPDFを直接添付し、Antigravity CLI（agy）には作�
 - [視覚読解](docs/visual-reading.md)
 - [入力上限](docs/input-limits.md)
 - [Wiki連携](docs/wiki-integration.md)
+- [論文データベース](docs/paper-database.md)
 - [監視・定期実行](docs/windows-scheduler.md)
 - [トラブル対応](docs/troubleshooting.md)
 

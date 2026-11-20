@@ -233,6 +233,8 @@ def allowed_write(relative):
         "scripts/validate_obsidian_markup.py",
         "scripts/check_changed.py",
         "scripts/extract_paper_visuals.py",
+        "scripts/update_index.py",
+        "scripts/paper_database.py",
         "00_System/Processing-Policy.md",
         "00_System/Templates/Paper-Source-Note.md",
         "00_System/Dictionaries/tag-taxonomy.yml",
@@ -247,6 +249,7 @@ def allowed_write(relative):
             "concept-index.md",
             "area-index.md",
             "log.md",
+            "論文データベース.md",
         }
     if relative.startswith("50_Wiki/Areas/"):
         return len(parts) == 3 and parts[-1] in {

@@ -8,8 +8,9 @@ from pathlib import Path
 
 from paperflow.agents.base import AnalysisResult, ProviderError, authorize_request
 from paperflow.agents.catalog import JsonChannel
+from paperflow.agents.json_response import parse_analysis_response, response_error
 from paperflow.agents.process import checked_help, classify_failure, resolve_command
-from paperflow.agents.schema import make_prompt, parse_response, schema_for, validate_response
+from paperflow.agents.schema import make_prompt, schema_for, validate_response
 from paperflow.agents.usage import number
 from paperflow.wiki.bundle import sha
 
@@ -128,6 +129,7 @@ class AgyCliProvider:
         staging = config.storage.data_dir / "staging"
         staging.mkdir(parents=True, exist_ok=True)
         usage = agy_usage(None)
+        model = config.analysis.model
         with tempfile.TemporaryDirectory(prefix="agy-", dir=staging) as directory:
             cwd = Path(directory)
             checked_help(command, [], ["--settings"], cwd)
@@ -238,10 +240,6 @@ class AgyCliProvider:
                     if result.get("stopReason") != "end_turn":
                         raise ProviderError("cli_exit", "agyが解析を完了する前に停止しました")
                 text = "".join(transcript.chunks).strip()
-                try:
-                    data = parse_response(text)
-                except ValueError as exc:
-                    raise ProviderError("invalid_json", "agyの要約JSONを取得できません") from exc
                 receipt = dict(
                     provider=self.name,
                     model=model,
@@ -251,6 +249,12 @@ class AgyCliProvider:
                     pdf_read_completed=bool(transcript.completed),
                     duplicate_fulltext=False,
                 )
+                try:
+                    data = parse_analysis_response(text)
+                except ValueError as exc:
+                    raise response_error(
+                        "agyの要約JSONを読み取れません", exc, raw=text, receipt=receipt
+                    ) from exc
                 if pdf and (not transcript.completed or sha(pdf) != request.document.sha256):
                     error = ProviderError(
                         "visual_reading",
@@ -261,7 +265,12 @@ class AgyCliProvider:
                 elapsed = time.monotonic() - started
                 return AnalysisResult(
                     validate_response(
-                        data, request, usage=usage, elapsed_seconds=elapsed, input_receipt=receipt
+                        data,
+                        request,
+                        usage=usage,
+                        elapsed_seconds=elapsed,
+                        input_receipt=receipt,
+                        raw_response=text,
                     ),
                     self.name,
                     model,
@@ -269,6 +278,20 @@ class AgyCliProvider:
                     usage=usage,
                 )
             except ProviderError as exc:
+                if transcript.chunks and not hasattr(exc, "raw_response"):
+                    exc.raw_response = "".join(transcript.chunks)
+                    exc.input_receipt = getattr(
+                        exc,
+                        "input_receipt",
+                        dict(
+                            provider=self.name,
+                            model=model,
+                            input_kind="native_pdf_readonly" if pdf else "text",
+                            pdf_sha256=request.document.sha256 if pdf else None,
+                            page_count=request.document.page_count if pdf else 0,
+                            pdf_read_completed=bool(transcript.completed),
+                        ),
+                    )
                 exc.usage = getattr(exc, "usage", usage)
                 exc.elapsed_seconds = time.monotonic() - started
                 if exc.category == "timeout":

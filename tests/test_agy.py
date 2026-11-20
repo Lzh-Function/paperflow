@@ -28,7 +28,7 @@ def pdf_request(tmp_path):
     return visual_fixture.__wrapped__(tmp_path)
 
 
-def channel_fixture(monkeypatch, data, *, mode="success"):
+def channel_fixture(monkeypatch, data, *, mode="success", response_text=None):
     calls, directories = [], []
     monkeypatch.setattr("paperflow.agents.agy_cli.resolve_command", lambda _: "agy.exe")
     monkeypatch.setattr("paperflow.agents.agy_cli.checked_help", lambda *a: "")
@@ -96,6 +96,8 @@ def channel_fixture(monkeypatch, data, *, mode="success"):
                 text = (
                     json.dumps(data, ensure_ascii=False) if mode != "invalid-json" else "malformed"
                 )
+                if response_text is not None:
+                    text = response_text
                 self.callback(
                     dict(
                         method="session/update",

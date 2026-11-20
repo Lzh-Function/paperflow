@@ -713,7 +713,7 @@ class Pipeline:
             else "ローカル処理に失敗しました"
         )
         with store.transaction():
-            if hasattr(error, "rejected_response"):
+            if hasattr(error, "rejected_response") or hasattr(error, "raw_response"):
                 try:
                     diagnostics = self.config.storage.data_dir / "diagnostics"
                     diagnostics.mkdir(parents=True, exist_ok=True)
@@ -722,17 +722,25 @@ class Pipeline:
                         (paper["paper_id"],),
                     ):
                         diagnostic = diagnostics / (run["run_id"] + ".rejected.json")
+                        detail = dict(
+                            type="paperflow-rejected-response",
+                            accepted=False,
+                            run_id=run["run_id"],
+                            category=category,
+                            input_receipt=getattr(error, "input_receipt", None),
+                            response=getattr(error, "rejected_response", None),
+                        )
+                        if hasattr(error, "raw_response"):
+                            detail.update(
+                                raw_response=error.raw_response,
+                                parse_error=getattr(error, "parse_error", None),
+                            )
+                        if hasattr(error, "normalized_response"):
+                            detail["normalized_response"] = error.normalized_response
                         diagnostic.write_text(
                             json.dumps(
-                                dict(
-                                    type="paperflow-rejected-response",
-                                    accepted=False,
-                                    run_id=run["run_id"],
-                                    category=category,
-                                    input_receipt=getattr(error, "input_receipt", None),
-                                    response=error.rejected_response,
-                                ),
-                                ensure_ascii=False,
+                                detail,
+                                ensure_ascii=True,
                                 indent=2,
                             ),
                             encoding="utf-8",
