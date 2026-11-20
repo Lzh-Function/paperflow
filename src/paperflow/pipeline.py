@@ -379,10 +379,11 @@ class Pipeline:
         *,
         preserve_paper=False,
         revalidate_only=False,
+        cached_only=False,
     ):
         config = self.config
         external = name != "fake"
-        if external and metadata.get("no_external"):
+        if external and metadata.get("no_external") and not (revalidate_only or cached_only):
             raise ProviderError("no_external", "この文献は外部送信禁止です")
         extraction, pdf_hash, pdf = None, None, match.get("path")
         if pdf and match["status"] == "pdf_matched":
@@ -535,6 +536,11 @@ class Pipeline:
                         ),
                     )
             else:
+                if cached_only:
+                    raise ProviderError(
+                        "saved_unavailable",
+                        "現在の入力と一致する保存済み解析がありません。AIへの再送は行いません",
+                    )
                 if external and self.cli_calls >= config.analysis.max_cli_calls_per_run:
                     raise ProviderError("call_limit", "今回のCLI呼び出し回数上限です", True)
                 run_id, started = uuid.uuid4().hex, now()

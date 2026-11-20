@@ -311,6 +311,52 @@ class GuiService:
             self.clear_sync_error()
         return result
 
+    def recovery_overview(self):
+        from paperflow import recovery
+
+        self.library()
+        if self._registry is None:
+            raise SettingsError("Vaultとの照合が必要です。接続と保存先を確認してください")
+        return dict(
+            recovery.overview(self.config(), self._registry), jobs=recovery.history(self.config())
+        )
+
+    def prepare_recovery(self, paper_ids, mode, provider=None, model=None):
+        from paperflow.recovery import prepare_job
+
+        return prepare_job(self.config(), paper_ids, mode, provider=provider, model=model)
+
+    def run_recovery(self, job, on_progress=None):
+        from paperflow.recovery import execute
+
+        cfg = self.config()
+        cloud = self.cloud(cfg)
+        if cloud.enabled:
+            cloud.begin()
+        self.stop_event.clear()
+        try:
+            return execute(
+                cfg,
+                job,
+                checkpoint=cloud.checkpoint if cloud.enabled else None,
+                should_stop=self.stop_event.is_set,
+                on_progress=on_progress,
+            )
+        finally:
+            self._registry_attempted = False
+            if cloud.enabled:
+                cloud.end()
+
+    def load_recovery(self, identifier):
+        from paperflow.recovery import load_job
+
+        return load_job(self.config(), identifier)
+
+    def prepare_saved_result(self, folder):
+        from paperflow.saved_result import prepare_import
+
+        return prepare_import(self.config(), folder)
+
     def history(self):
         root = self.config().storage.data_dir / "batches"
         items = []

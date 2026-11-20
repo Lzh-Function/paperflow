@@ -15,6 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from paperflow.config import SettingsError
 from paperflow.gui_config import config_values, save_changes
+from paperflow.gui_recovery import RecoveryPanel
 from paperflow.gui_service import GuiService
 from paperflow.gui_sync import SyncPanel
 from paperflow.library import FILTERS, filter_rows
@@ -133,7 +134,7 @@ def comments(path):
     return result
 
 
-class PaperFlowApp(SyncPanel):
+class PaperFlowApp(SyncPanel, RecoveryPanel):
     def __init__(self, root, config_path, *, auto_load=True):
         self.root = root
         self.service = GuiService(config_path)
@@ -280,12 +281,14 @@ class PaperFlowApp(SyncPanel):
         self.import_tab = ttk.Frame(self.tabs, padding=(0, 16))
         self.library_tab = ttk.Frame(self.tabs, padding=16)
         self.history_tab = ttk.Frame(self.tabs, padding=16)
+        self.recovery_tab = ttk.Frame(self.tabs, padding=16)
         self.settings_tab = ttk.Frame(self.tabs, padding=(0, 12))
         self.cloud_tab = ttk.Frame(self.tabs, padding=16)
         for frame, name in [
             (self.import_tab, "取り込み"),
             (self.library_tab, "論文一覧"),
             (self.history_tab, "履歴・消費量"),
+            (self.recovery_tab, "復旧・後処理"),
             (self.settings_tab, "設定"),
             (self.cloud_tab, "PC間同期"),
         ]:
@@ -407,6 +410,7 @@ class PaperFlowApp(SyncPanel):
             actions, "レポートを開く", self.open_report, during_run=True, side="left", padx=8
         )
         self._build_library()
+        self._build_recovery()
         self._build_history()
         self._build_settings()
         foot = ttk.Frame(self.root, padding=(25, 0, 25, 14))
@@ -568,6 +572,8 @@ class PaperFlowApp(SyncPanel):
     def _tab_changed(self, event=None):
         if hasattr(self, "library_tree") and self.tabs.select() == str(self.library_tab):
             self.refresh_library()
+        elif hasattr(self, "recovery_tree") and self.tabs.select() == str(self.recovery_tab):
+            self.refresh_recovery()
 
     def refresh_library(self, *, reconcile=False):
         if self._closed:
@@ -597,6 +603,8 @@ class PaperFlowApp(SyncPanel):
             return
         if self.tabs.select() == str(self.library_tab):
             self.refresh_library()
+        elif hasattr(self, "recovery_tree") and self.tabs.select() == str(self.recovery_tab):
+            self.refresh_recovery()
         self.root.after(3000, self._poll_library)
 
     def reset_library(self):
@@ -1127,6 +1135,8 @@ class PaperFlowApp(SyncPanel):
                     event[1](event[2])
                 elif kind == "summary_progress":
                     event[1](event[2])
+                elif kind == "recovery_progress":
+                    self.show_recovery_progress(event[1])
                 elif kind == "error":
                     action = self.action
                     self._set_busy(False)
@@ -1152,9 +1162,12 @@ class PaperFlowApp(SyncPanel):
                     event[1](event[2])
                 elif kind == "read_error":
                     self.read_pending = False
-                    self._set_usage(
-                        "結果を読み込めませんでした。実行処理は継続しています。\n" + event[1]
-                    )
+                    if len(event) > 2 and event[2]:
+                        event[2](event[1])
+                    else:
+                        self._set_usage(
+                            "結果を読み込めませんでした。実行処理は継続しています。\n" + event[1]
+                        )
                 elif kind in {"library_done", "library_error"}:
                     if event[1] == self.library_token:
                         self.library_pending = False
@@ -1199,7 +1212,7 @@ class PaperFlowApp(SyncPanel):
             + ((" — " + data["message"]) if data.get("message") else "")
         )
 
-    def read_job(self, job, done):
+    def read_job(self, job, done, on_error=None):
         """閲覧は解析キュー・busy状態・停止要求を変更しない。"""
         if self.read_pending or self._closed:
             return
@@ -1209,7 +1222,7 @@ class PaperFlowApp(SyncPanel):
             try:
                 self.events.put(("read_done", done, job()))
             except Exception as exc:
-                self.events.put(("read_error", str(exc)))
+                self.events.put(("read_error", str(exc), on_error))
 
         self.reader.submit(worker)
 
@@ -1447,6 +1460,7 @@ class PaperFlowApp(SyncPanel):
         try:
             self._reload_settings()
             self.reset_library()
+            self.reset_recovery()
             self.status.set("設定を読み込みました")
         except (OSError, ValueError) as exc:
             messagebox.showerror("設定", str(exc), parent=self.root)
@@ -1465,6 +1479,7 @@ class PaperFlowApp(SyncPanel):
             self._reload_settings()
             self._load_selection()
             self.reset_library()
+            self.reset_recovery()
             self.plan = None
             self.plan_path = None
             self.tree.delete(*self.tree.get_children())
@@ -1494,6 +1509,7 @@ class PaperFlowApp(SyncPanel):
             return
         self.service = service
         self.reset_library()
+        self.reset_recovery()
         self.viewed_path = None
         self.view_running = False
         self.cfg = cfg

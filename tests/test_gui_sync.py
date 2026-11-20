@@ -57,7 +57,7 @@ def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monk
         assert until(), errors
 
     try:
-        assert len(app.tabs.tabs()) == 5
+        assert len(app.tabs.tabs()) == 6
         app.tabs.select(app.cloud_tab)
         app.cloud_folder.set(str(tmp_path / "shared"))
         app.cloud_create()

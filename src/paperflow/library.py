@@ -46,7 +46,7 @@ def decode(value, default):
         return default
 
 
-def status(paper, match, latest, success, imported, metadata):
+def status(paper, match, latest, success, imported, metadata, *, alias_matches=False):
     if imported:
         return "processed", "取り込み済み・ファイル同期待ち" if paper[
             "error_type"
@@ -57,7 +57,7 @@ def status(paper, match, latest, success, imported, metadata):
         return "failed", "中断" if latest and latest["status"] == "interrupted" else LABELS[
             "failed"
         ]
-    if success and paper["source_hash"] == success["source_hash"]:
+    if success and (paper["source_hash"] == success["source_hash"] or alias_matches):
         return "ready", LABELS["ready"]
     if success:
         return "attention", "入力更新・再確認"
@@ -84,6 +84,10 @@ def snapshot(config, registry=None):
         attachments = store.rows(
             "SELECT paper_id,source_path,sha256 FROM attachments WHERE is_primary=1"
         )
+        aliases = {
+            (r["run_id"], r["source_hash"])
+            for r in store.rows("SELECT run_id,source_hash FROM analysis_aliases")
+        }
     latest, success, imported_rows, hashes = {}, {}, {}, {}
     for run in runs:
         latest[run["paper_id"]] = run
@@ -118,7 +122,15 @@ def snapshot(config, registry=None):
         displayed = active or last
         in_vault = bool(registry and registry.contains(item))
         imported = bool(exported or in_vault)
-        group, label = status(paper, match, last, good, imported, metadata)
+        group, label = status(
+            paper,
+            match,
+            last,
+            good,
+            imported,
+            metadata,
+            alias_matches=bool(good and (good["run_id"], paper["source_hash"]) in aliases),
+        )
         good_data = decode(good["output_json"], {}) if good else {}
         authors = decode(paper["authors_json"], [])
         error = paper["error_message"] or (last["error_message"] if last else "") or ""

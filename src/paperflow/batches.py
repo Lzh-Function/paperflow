@@ -359,7 +359,11 @@ def usage_report(config, progress):
             if exists
             else {}
         )
-    external = [r for r in rows if r["provider"] != "fake"]
+    external = [
+        r
+        for r in rows
+        if r["provider"] != "fake" and not usage.get(r["run_id"], {}).get("imported_result")
+    ]
     totals = {}
     missing = {}
     for key in ["input_tokens", "cached_input_tokens", "output_tokens", "total_tokens", "cost_usd"]:
@@ -373,7 +377,11 @@ def usage_report(config, progress):
         cached_or_previous_runs_excluded=True,
         reported=totals,
         unreported_calls=missing,
-        elapsed_analysis_seconds=sum(r["elapsed_seconds"] or 0 for r in rows),
+        elapsed_analysis_seconds=sum(
+            r["elapsed_seconds"] or 0
+            for r in rows
+            if not usage.get(r["run_id"], {}).get("imported_result")
+        ),
         runs=[dict(**r, usage=usage.get(r["run_id"])) for r in rows],
         notice="CLI申告値の集計。未取得は不明。CLIの費用表示は利用枠の消費率・請求確定額ではありません。中断・失敗した呼出しの消費量が未取得の可能性があります。",
     )
