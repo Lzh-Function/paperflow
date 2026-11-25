@@ -47,6 +47,25 @@ def test_folder_roundtrip_without_google_api_or_credential_setup(pcs, tmp_path, 
     assert not list(folder.rglob("*.pending"))
 
 
+def test_same_shared_folder_can_move_without_resetting_db_or_known_history(pcs, tmp_path):
+    a, _, _ = pcs
+    old = tmp_path / "old-shared"
+    cloud = connected(a, old)
+    initial = cloud.status()
+    moved = tmp_path / "new-shared"
+    shutil.move(old, moved)
+    transport = FolderTransport(a, moved)
+    db_before = a.storage.database.read_bytes()
+    with pytest.raises(SyncError, match="未確認"):
+        ProgressSync(a, transport).connect(transport.workspace())
+    renewed = ProgressSync(a, transport, confirmed=True)
+    renewed.connect(transport.workspace())
+    assert renewed.status()["head"] == initial["head"]
+    assert renewed.status()["workspace_id"] == initial["workspace_id"]
+    assert renewed.status()["shared_folder"] == str(moved)
+    assert a.storage.database.read_bytes() == db_before
+
+
 def test_startup_receives_but_does_not_publish_without_fresh_confirmation(pcs, tmp_path):
     a, b, _ = pcs
     folder = tmp_path / "shared"

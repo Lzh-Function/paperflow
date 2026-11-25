@@ -9,6 +9,26 @@ from test_gui import gui_config
 from paperflow.progress_sync import settings
 
 
+def test_typing_a_new_shared_folder_resets_drive_confirmation():
+    from types import SimpleNamespace as NS
+
+    from paperflow.gui_sync import SyncPanel
+
+    checked = [True]
+    value = ["old-shared"]
+    panel = NS(
+        cloud_folder=NS(get=lambda: value[0]),
+        drive_checked=NS(set=lambda v: checked.__setitem__(0, v)),
+        service=NS(_sync_confirmation="previous"),
+        _cloud_selected_folder="old-shared",
+    )
+    SyncPanel.cloud_folder_changed(panel)
+    assert checked[0] and panel.service._sync_confirmation == "previous"
+    value[0] = "new-shared"
+    SyncPanel.cloud_folder_changed(panel)
+    assert not checked[0] and panel.service._sync_confirmation is None
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows Tk GUI")
 def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monkeypatch):
     if not os.environ.get("PAPERFLOW_SYNC_GUI_CHILD"):

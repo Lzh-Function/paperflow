@@ -184,8 +184,9 @@ def test_paths_and_expansion_are_checked(two_pcs):
 
 
 @pytest.mark.parametrize("folder_mode", [False, True])
+@pytest.mark.parametrize("relocate", [False, True])
 def test_fixed_batch_resumes_on_second_pc_and_back_without_duplicate_plan(
-    wiki_config, tmp_path, folder_mode
+    wiki_config, tmp_path, folder_mode, relocate
 ):
     a = wiki_config
     b = a.model_copy(deep=True)
@@ -223,9 +224,17 @@ def test_fixed_batch_resumes_on_second_pc_and_back_without_duplicate_plan(
     )
     home.end()
     assert first["registered"] == 1
+    if relocate:
+        moved = tmp_path / "renamed-home-vault"
+        shutil.move(a.destination.vault_dir, moved)
+        a.destination.vault_dir = moved
     shutil.copytree(a.destination.vault_dir, b.destination.vault_dir, dirs_exist_ok=True)
     lab = ProgressSync(b, FolderTransport(b, drive.root) if folder_mode else drive, confirmed=True)
     lab.connect(workspace)
+    if relocate:
+        moved = tmp_path / "renamed-lab-vault"
+        shutil.move(b.destination.vault_dir, moved)
+        b.destination.vault_dir = moved
     lab.begin()
     imported = next((b.storage.data_dir / "batches").glob("*.plan.json"))
     assert [p["paper_id"] for p in load(a, path)["items"]] == [

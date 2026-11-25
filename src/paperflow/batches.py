@@ -14,7 +14,7 @@ import yaml
 
 from paperflow.agents.schema import PROMPT, VISUAL_PROMPT, VISUAL_SCHEMA
 from paperflow.config import SettingsError
-from paperflow.drive_paths import drive_path, same_binding
+from paperflow.drive_paths import drive_path
 from paperflow.ingestion.bibtex_reader import identity_key, normalize_doi
 from paperflow.models import Bibliography, digest
 from paperflow.obsidian.writer import SafeWriter, WriteConflict, local_lock
@@ -24,17 +24,23 @@ from paperflow.store import Store, now
 from paperflow.wiki.bundle import json_write, sha, target
 
 
-def binding(config):
+def binding(config, *, identify=False):
     paths = dict(
         vault=config.destination.vault_dir,
         database=config.storage.database,
         paperpile=config.source.paperpile_dir,
         bibtex=config.source.bibtex_file,
     )
-    return {
+    result = {
         key: os.path.normcase(str(value.resolve())) if value is not None else None
         for key, value in paths.items()
     }
+    if identify:
+        from paperflow.vault_paths import vault_identity
+
+        if identity := vault_identity(config):
+            result["vault_identity"] = identity
+    return result
 
 
 def local_output(config, path):
@@ -263,7 +269,7 @@ def plan(
                 portable_runtime=True,
                 batch_id=uuid.uuid4().hex,
                 created_at=now(),
-                binding=binding(config),
+                binding=binding(config, identify=True),
                 seed=seed,
                 mode="all" if all_papers else "additional" if count is not None else "total",
                 requested=count if count is not None else total,
@@ -284,6 +290,8 @@ def plan(
 
 
 def load(config, path):
+    from paperflow.vault_paths import binding_matches
+
     path = local_output(config, path)
     if path.stat().st_size > 16 * 1024 * 1024:
         raise SettingsError("バッチ計画が大きすぎます")
@@ -291,7 +299,7 @@ def load(config, path):
     if (
         data.get("type") != "paperflow-batch"
         or data.get("version") != 1
-        or not same_binding(data.get("binding"), binding(config))
+        or not binding_matches(config, data.get("binding"), binding(config))
     ):
         raise SettingsError("別のVault・DB・原本用、または未対応のバッチ計画です")
     items = data.get("items")

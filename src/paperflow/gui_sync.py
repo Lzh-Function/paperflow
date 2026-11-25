@@ -25,6 +25,8 @@ class SyncPanel:
             or str(self.cfg.destination.vault_dir.parent / "PaperFlow-Sync")
         )
         self.drive_checked = tk.BooleanVar(value=False)
+        self._cloud_selected_folder = self.cloud_folder.get().strip()
+        self.cloud_folder.trace_add("write", self.cloud_folder_changed)
         self._cloud_seen_service = None
         self._cloud_seen_binding = None
         self.cloud_result = tk.StringVar(
@@ -93,7 +95,7 @@ class SyncPanel:
             side="left"
         )
         self.button(row, "最初のPC：共有を新規作成", self.cloud_create, side="left", padx=8)
-        self.button(row, "2台目：既存の共有を引き継ぐ", self.cloud_join, side="left")
+        self.button(row, "既存の共有を引き継ぐ／場所を変更", self.cloud_join, side="left")
         ttk.Label(frame, textvariable=self.cloud_result, wraplength=990).pack(anchor="w", pady=6)
         ttk.Label(
             frame, text="3. PCを切り替えたら、Driveの同期完了を確認", style="Heading.TLabel"
@@ -250,6 +252,13 @@ class SyncPanel:
 
         self.submit("settings", change, self.cloud_done)
 
+    def cloud_folder_changed(self, *args):
+        selected = self.cloud_folder.get().strip()
+        if selected != self._cloud_selected_folder:
+            self._cloud_selected_folder = selected
+            self.drive_checked.set(False)
+            self.service._sync_confirmation = None
+
     def cloud_choose_folder(self):
         value = filedialog.askdirectory(
             parent=self.root, title="Drive内の専用共有フォルダ", mustexist=False
@@ -257,10 +266,11 @@ class SyncPanel:
         if value:
             self.cloud_folder.set(value)
             self.drive_checked.set(False)
+            self.service._sync_confirmation = None
             self.cloud_result.set(
                 "選択中："
                 + value
-                + "\nまだ保存していません。初回は「最初のPC：共有を新規作成」を押してください。"
+                + "\nまだ保存していません。同じ共有の場所変更や別PCでの利用は「既存の共有を引き継ぐ／場所を変更」を押してください。新しい共有を始める場合だけ新規作成します。"
             )
 
     def _drive_confirmed(self):

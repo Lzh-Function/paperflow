@@ -11,10 +11,11 @@ import sqlite3
 import uuid
 from pathlib import Path, PurePosixPath
 
-from paperflow.drive_paths import relative_path, same_binding
+from paperflow.drive_paths import relative_path
 from paperflow.models import digest
 from paperflow.portable import bib_key, profile
 from paperflow.store import Store
+from paperflow.vault_paths import binding_matches, export_path, export_relative
 from paperflow.wiki.bundle import json_write, sha, target
 
 TABLES = (
@@ -84,7 +85,7 @@ def capture(cfg):
     for row in tables["analysis_runs"]:
         row["output_json_path"] = None
     for row in tables["exports"]:
-        row["target_path"] = relative(row["target_path"], cfg.destination.vault_dir)
+        row["target_path"] = export_relative(cfg, row)
     for row in tables["managed_files"]:
         local(cfg.destination.vault_dir, row["path"])
     # エラーに含まれるパスも端末から持ち出さない。
@@ -97,8 +98,10 @@ def capture(cfg):
     paper_meta = {r["paper_id"]: json.loads(r["metadata_json"]) for r in tables["papers"]}
     for path in sorted((cfg.storage.data_dir / "batches").glob("*.plan.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not same_binding(
-            data.get("binding"), __import__("paperflow.batches", fromlist=["binding"]).binding(cfg)
+        if not binding_matches(
+            cfg,
+            data.get("binding"),
+            __import__("paperflow.batches", fromlist=["binding"]).binding(cfg),
         ):
             continue
         data.pop("binding")
@@ -415,9 +418,7 @@ def vault_ready(cfg):
 
 def export_ready(cfg, row):
     # DBに残る旧Drive表示名も、共有への書き出しと同じ規則で読み替える。
-    path = target(
-        cfg.destination.vault_dir, relative(row["target_path"], cfg.destination.vault_dir)
-    )
+    path = export_path(cfg, row)
     if not path.is_file():
         raise ValueError("Vaultのファイル同期待ちです：" + str(path))
     if row["export_kind"] == "WikiSource":

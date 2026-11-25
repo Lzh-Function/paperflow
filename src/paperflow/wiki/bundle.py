@@ -344,6 +344,30 @@ def allowed_promotion_write(relative):
     )
 
 
+def _check_relocated_inventory(root, plan):
+    """旧パスのjournalを復元する前に、移動先が同じ管理内容か確認する。"""
+    changes = {e["path"]: e for e in plan["changes"]}
+    current = inventory(root)
+    before = plan["inventory"]
+    for name in before.keys() | current.keys():
+        allowed = (
+            {changes[name]["before"], changes[name]["after"]}
+            if name in changes
+            else {before.get(name)}
+        )
+        if current.get(name) not in allowed:
+            raise WriteConflict(
+                "移動先のVaultと準備時の管理内容が一致しません。差分を再生成してください"
+            )
+    # inventory外の新規PDF・図表も、未反映か計画どおりの途中反映だけを許可する。
+    for name, entry in changes.items():
+        if name not in current:
+            path = target(root, name)
+            actual = sha(path) if path.is_file() else None
+            if actual not in {entry["before"], entry["after"]}:
+                raise WriteConflict("移動先のファイルが準備時の内容と一致しません")
+
+
 def apply(config, bundle, *, approved_promotion_sha256=None):
     if not config.destination.allow_vault_write:
         raise SettingsError("初回本番書き込みは未承認です。差分を確認してから許可してください")
@@ -364,8 +388,8 @@ def apply(config, bundle, *, approved_promotion_sha256=None):
             )
         permitted = allowed_promotion_write
     root = config.destination.vault_dir.resolve()
-    if str(root) != plan["vault"]:
-        raise SettingsError("この差分は別のVault用です")
+    if not isinstance(plan.get("vault"), str) or not Path(plan["vault"]).is_absolute():
+        raise SettingsError("差分に有効な元Vaultの記録がありません")
     if any(not permitted(e["path"]) for e in plan["changes"]):
         raise SettingsError("許可範囲外のファイルが反映計画に含まれています")
     if bundle.is_relative_to(root):
@@ -375,11 +399,13 @@ def apply(config, bundle, *, approved_promotion_sha256=None):
         json.loads(journal_path.read_text(encoding="utf-8")) if journal_path.exists() else None
     )
     with wiki_lock(root):
-        if journal and journal["status"] == "applying":
-            restore(root, bundle, journal)
+        if str(root) != plan["vault"]:
+            _check_relocated_inventory(root, plan)
         for name, digest in plan.get("frozen_guards", {}).items():
             if not target(root, name).is_file() or sha(target(root, name)) != digest:
                 raise WriteConflict("再利用する凍結出典が準備後に変更されました")
+        if journal and journal["status"] == "applying":
+            restore(root, bundle, journal)
         if journal and journal["status"] == "complete":
             if all(
                 target(root, e["path"]).is_file() and sha(target(root, e["path"])) == e["after"]
@@ -389,7 +415,7 @@ def apply(config, bundle, *, approved_promotion_sha256=None):
             raise WriteConflict("反映後のファイルが変わっています。新たに差分を準備してください")
         if inventory(root) != plan["inventory"]:
             raise WriteConflict(
-                "準備後にVaultの管理ノート・契約・manifestが変わりました。差分を再生成してください"
+                "準備時とVaultの管理ノート・契約・manifestが一致しません。保存先と同期状況を確認し、差分を再生成してください"
             )
         for entry in plan["changes"]:
             dest = target(root, entry["path"])

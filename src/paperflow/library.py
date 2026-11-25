@@ -3,10 +3,10 @@
 import json
 import unicodedata
 from collections import Counter
-from pathlib import Path
 
 from paperflow.drive_paths import drive_path
 from paperflow.store import Store, now
+from paperflow.vault_paths import export_relative
 
 FILTERS = {
     "すべて": "all",
@@ -95,12 +95,23 @@ def snapshot(config, registry=None):
             success[run["paper_id"]] = run
     kind = "WikiSource" if config.destination.layout == "llm_wiki" else "Analysis"
     runs_by_id = {run["run_id"]: run for run in runs}
+    registered_notes = {}
+    if registry:
+        for record in registry.records:
+            for identifier in record["ids"]:
+                registered_notes.setdefault(identifier, set()).add(record["note"])
     for exported in exports:
-        exported["target_path"] = drive_path(exported["target_path"])
-        if exported["export_kind"] == kind and Path(exported["target_path"]).is_relative_to(
-            config.destination.vault_dir
-        ):
+        if exported["export_kind"] != kind:
+            continue
+        try:
+            relative = export_relative(config, exported, prove=False)
+            exported["target_path"] = str(config.destination.vault_dir / relative)
             imported_rows[exported["paper_id"]] = exported
+        except (OSError, ValueError):
+            notes = registered_notes.get(exported["paper_id"], set())
+            if exported["export_kind"] == "WikiSource" and len(notes) == 1:
+                exported["target_path"] = next(iter(notes))
+                imported_rows[exported["paper_id"]] = exported
     for attachment in attachments:
         key = (attachment["paper_id"], drive_path(attachment["source_path"]))
         hashes[key] = attachment["sha256"] or hashes.get(key)

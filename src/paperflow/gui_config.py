@@ -81,7 +81,12 @@ def save_changes(path, changes, *, expected_text=None):
                 handle.write(revised)
                 handle.flush()
                 os.fsync(handle.fileno())
-            load_config(temp)
+            candidate = load_config(temp)
+            if candidate.destination.vault_dir != config.destination.vault_dir:
+                from paperflow.vault_paths import check_vault
+
+                # パスの保存だけで原本・Vault・DBを書き換えない。別Vaultの混入は保存前に停止。
+                check_vault(candidate)
             if path.read_text(encoding="utf-8-sig") != original:
                 raise WriteConflict("保存前に設定ファイルが変更されました")
             os.replace(temp, path)

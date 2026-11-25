@@ -3,6 +3,7 @@ from pathlib import Path
 
 from paperflow.ingestion.matcher import MATCH_REASONS
 from paperflow.obsidian.renderer import escape, frontmatter
+from paperflow.vault_paths import export_relative
 
 
 def report(store, min_priority=5, config=None):
@@ -23,16 +24,11 @@ def report(store, min_priority=5, config=None):
             link = f"PaperFlow/Analysis/{paper['paper_id']}"
             if config is not None and config.destination.layout == "llm_wiki":
                 rows = store.rows(
-                    "SELECT target_path FROM exports WHERE paper_id=? AND export_kind='WikiSource'",
+                    "SELECT * FROM exports WHERE paper_id=? AND export_kind='WikiSource'",
                     (paper["paper_id"],),
                 )
                 if rows:
-                    link = (
-                        Path(rows[0]["target_path"])
-                        .relative_to(config.destination.vault_dir)
-                        .with_suffix("")
-                        .as_posix()
-                    )
+                    link = Path(export_relative(config, rows[0])).with_suffix("").as_posix()
                 else:
                     lines.append(
                         f"- ★{result['priority']} {escape(paper['title'])} — 正式Wiki登録待ち"

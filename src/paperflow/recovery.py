@@ -15,6 +15,7 @@ from paperflow.obsidian.writer import SafeWriter, WriteConflict, local_lock
 from paperflow.pipeline import Pipeline
 from paperflow.portable import bib_key, profile, profiles_compatible
 from paperflow.store import Store, now
+from paperflow.vault_paths import binding_matches
 from paperflow.wiki.bundle import apply, json_write, sha
 from paperflow.wiki.export import cached_items, prepare, record_exports
 
@@ -204,7 +205,7 @@ def prepare_job(cfg, paper_ids, mode, *, provider=None, model=None):
         version=1,
         job_id=uuid.uuid4().hex,
         created_at=now(),
-        binding=binding(cfg),
+        binding=binding(cfg, identify=True),
         profile=profile(job_cfg),
         mode=mode,
         provider=job_cfg.analysis.default_provider,
@@ -243,7 +244,7 @@ def load_job(cfg, identifier):
         or data.get("version") != 1
         or data.get("job_id") != identifier
         or data.get("mode") not in MODES
-        or data.get("binding") != binding(cfg)
+        or not binding_matches(cfg, data.get("binding"), binding(cfg))
     ):
         raise SettingsError("このPC・設定では復旧ジョブを再開できません")
     return data
@@ -413,7 +414,7 @@ def _call_count(store, identifier):
 
 
 def execute(cfg, job, *, checkpoint=None, should_stop=None, on_progress=None, provider=None):
-    if job.get("binding") != binding(cfg) or job.get("mode") not in MODES:
+    if not binding_matches(cfg, job.get("binding"), binding(cfg)) or job.get("mode") not in MODES:
         raise SettingsError("復旧ジョブの設定が一致しません")
     work = cfg.model_copy(deep=True)
     work.analysis.default_provider, work.analysis.model = job["provider"], job["model"]
