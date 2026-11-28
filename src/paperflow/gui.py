@@ -247,6 +247,7 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
                 .settings(self.cfg)
                 .get("enabled")
             ):
+                self.tabs.select(self.cloud_tab)
                 self.root.after(250, self.cloud_sync)
 
     def mutable_widget(self, widget, state="normal"):
@@ -574,6 +575,8 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
             self.refresh_library()
         elif hasattr(self, "recovery_tree") and self.tabs.select() == str(self.recovery_tab):
             self.refresh_recovery()
+        elif hasattr(self, "cloud_next") and self.tabs.select() == str(self.cloud_tab):
+            self.cloud_refresh()
 
     def refresh_library(self, *, reconcile=False):
         if self._closed:
@@ -1049,6 +1052,7 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
         self.source_label.configure(
             text=f"入力：{cfg.source.paperpile_dir}\n保存先：{cfg.destination.vault_dir}"
         )
+        self.cloud_refresh()
         self._buttons()
 
     def _buttons(self):
@@ -1065,6 +1069,8 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
 
         if settings(self.cfg).get("enabled") and not self.service.progress_confirmed(self.cfg):
             ready = False
+        if settings(self.cfg).get("enabled") and not self._cloud_profile_matches:
+            ready = False
         self.start_button.configure(
             state="normal" if ready else "disabled",
             text=f"この{len(self.plan['items'])}本を要約して保存" if self.plan else "要約して保存",
@@ -1072,6 +1078,7 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
         self.stop_button.configure(
             state="normal" if self.busy and self.action == "run" else "disabled"
         )
+        self.cloud_update_buttons()
 
     def _set_busy(self, value, action=None):
         self.busy = value

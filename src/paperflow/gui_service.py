@@ -50,7 +50,23 @@ class GuiService:
             from paperflow.progress_sync import SyncError
 
             raise SyncError("先に共有フォルダを新規作成するか、既存の共有を引き継いでください")
-        result = cloud.sync()
+        # モデル等が違うPCでも受信・Drive確認までは行い、設定の採用は利用者が選ぶ。
+        from paperflow.portable import profile, profiles_compatible
+
+        result = cloud.sync(publish=False)
+        shared = cloud.local.get("shared_profile")
+        if not shared or profiles_compatible(shared, profile(cfg)):
+            result = cloud.sync()
+        self._sync_confirmation = self._sync_binding(cfg)
+        self.clear_sync_error()
+        return result
+
+    def join_progress_folder(self, folder):
+        from paperflow.folder_sync import FolderTransport
+
+        cfg = self.config()
+        transport = FolderTransport(cfg, folder)
+        result = ProgressSync(cfg, transport, confirmed=True).connect(transport.workspace())
         self._sync_confirmation = self._sync_binding(cfg)
         self.clear_sync_error()
         return result
@@ -307,8 +323,14 @@ class GuiService:
     def progress_sync(self):
         cloud = self.cloud()
         result = cloud.sync(publish=cloud.confirmed)
-        if cloud.confirmed:
-            self.clear_sync_error()
+        self.clear_sync_error()
+        return result
+
+    def progress_action(self, action):
+        if action not in {"takeover", "acknowledge", "share_profile"}:
+            raise ValueError("不明な同期操作です")
+        result = getattr(self.cloud(), action)()
+        self.clear_sync_error()
         return result
 
     def recovery_overview(self):

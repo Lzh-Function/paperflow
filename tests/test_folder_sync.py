@@ -22,6 +22,58 @@ def connected(cfg, folder):
     return cloud
 
 
+def test_sync_never_shares_edited_analysis_settings_without_explicit_choice(pcs, tmp_path):
+    a, _, _ = pcs
+    folder = tmp_path / "shared"
+    home = connected(a, folder)
+    before = tree(folder)
+    original = home.status()["shared_profile"]
+    a.analysis.research_context = "このPCで編集した研究分野"
+    with pytest.raises(SyncError, match="現在の解析設定を共有"):
+        home.sync()
+    assert tree(folder) == before
+    assert home.status()["shared_profile"] == original
+    home.share_profile()
+    assert (
+        home.status()["shared_profile"]["analysis"]["research_context"]
+        == a.analysis.research_context
+    )
+    home.begin()
+    home.end()
+
+
+@pytest.mark.parametrize("edit_progress", [False, True])
+def test_receive_with_local_setting_edits_keeps_settings_and_detects_real_conflict(
+    pcs, tmp_path, edit_progress
+):
+    a, b, _ = pcs
+    folder = tmp_path / "shared"
+    home = connected(a, folder)
+    lab = ProgressSync(b, FolderTransport(b, folder), confirmed=True)
+    lab.connect(FolderTransport(b, folder).workspace())
+    b.analysis.research_context = "ラボPCで選び直した設定"
+    if edit_progress:
+        with Store(b.storage.database) as store, store.transaction():
+            store.db.execute("UPDATE papers SET error_message='このPCだけの進捗変更'")
+    home.begin()
+    home.end()
+    before = tree(folder)
+    if edit_progress:
+        with pytest.raises(SyncError, match="未送信変更"):
+            lab.sync(publish=False)
+        with Store(b.storage.database, readonly=True) as store:
+            assert (
+                store.rows("SELECT error_message FROM papers")[0]["error_message"]
+                == "このPCだけの進捗変更"
+            )
+    else:
+        lab.sync(publish=False)
+        assert lab.status()["head"] == home.status()["head"]
+        assert lab.status()["shared_profile"] == home.status()["shared_profile"]
+    assert b.analysis.research_context == "ラボPCで選び直した設定"
+    assert tree(folder) == before
+
+
 def test_folder_roundtrip_without_google_api_or_credential_setup(pcs, tmp_path, monkeypatch):
     from test_progress_sync import CountProvider
 

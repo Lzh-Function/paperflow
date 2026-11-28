@@ -179,7 +179,7 @@ class ProgressSync:
                     with Store(self.cfg.storage.database, readonly=True) as store:
                         if store.rows("SELECT paper_id FROM papers LIMIT 1"):
                             raise SyncError(
-                                "このPCには既存の文献DBがあります。空の作業フォルダとDBを設定してから参加してください。既存DBは変更していません"
+                                "このPCには既存の文献DBがあります。「PC間同期」の「トラブル時の操作を表示 → 空の作業DBへ切替」を使ってから引き継いでください。元のDB・解析結果は保持し、自動合併しません"
                             )
                 self.sync(_lock_held=True)
             self._save()
@@ -205,7 +205,16 @@ class ProgressSync:
             local_data = capture(self.cfg)
             fingerprint = digest(local_data)
             if remote and remote["commit_id"] != self.local.get("head"):
-                if self.local.get("base") and fingerprint != self.local["base"]:
+                # 設定だけの変更を文献進捗の分岐と扱わず、設定は自動採用・共有しない。
+                shared_fingerprint = digest(
+                    dict(
+                        local_data, profile=self.local.get("shared_profile", local_data["profile"])
+                    )
+                )
+                if self.local.get("base") and self.local["base"] not in (
+                    fingerprint,
+                    shared_fingerprint,
+                ):
                     raise SyncError(
                         "このPCの未送信変更と別PCの進捗が両方あります。上書きせず停止しました"
                     )
@@ -266,8 +275,13 @@ class ProgressSync:
         path.unlink()
         (directory(self.cfg) / "pending.gz").unlink(missing_ok=True)
 
-    def _publish(self, *, owner, takeover=False):
+    def _publish(self, *, owner, takeover=False, share_profile=False):
         self._require_confirmation()
+        shared = self.local.get("shared_profile")
+        if not share_profile and shared and not profiles_compatible(shared, profile(self.cfg)):
+            raise SyncError(
+                "解析設定が共有設定と違います。「PC間同期」の差分を確認し、「共有解析設定を適用」するか「現在の解析設定を共有」してください。進捗はこのPCに保持しています"
+            )
         remote = self._remote()
         self._recover_pending(remote)
         remote = self._remote()
@@ -369,7 +383,7 @@ class ProgressSync:
         if not self.enabled:
             raise SyncError("先に共有フォルダを作成または選択してください")
         with local_lock(self.cfg.storage.data_dir):
-            self._publish(owner=None)
+            self._publish(owner=None, share_profile=True)
         return self.status()
 
     def acknowledge(self):
