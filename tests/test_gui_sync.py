@@ -219,3 +219,105 @@ def test_gui_setup_creates_shared_progress_and_syncs_before_close(tmp_path, monk
     finally:
         if not app._closed:
             app._destroy()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Tk GUI")
+def test_path_fields_update_live_and_save_from_either_tab(tmp_path, monkeypatch):
+    if not os.environ.get("PAPERFLOW_PATH_FIELDS_CHILD"):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-X",
+                "utf8",
+                "-m",
+                "pytest",
+                __file__ + "::test_path_fields_update_live_and_save_from_either_tab",
+                "-q",
+                "--tb=short",
+            ],
+            env=dict(os.environ, PAPERFLOW_PATH_FIELDS_CHILD="1"),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=45,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        return
+    import shutil
+    import tkinter as tk
+    from tkinter import ttk
+
+    from paperflow.gui import PaperFlowApp
+    from paperflow.gui_service import GuiService
+    from paperflow.pipeline import Pipeline
+    from paperflow.store import Store
+
+    path = gui_config(tmp_path)
+    service = GuiService(path)
+    plan = service.prepare("all")
+    original = service.config().destination.vault_dir
+    Pipeline(service.config()).run(paper_ids=[plan["items"][0]["paper_id"]])
+    moved = tmp_path / "new-vault"
+    shutil.copytree(original, moved)
+    contents = tree(original)
+    errors = []
+    monkeypatch.setattr("tkinter.messagebox.showerror", lambda *a, **k: errors.append(a))
+    monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *a, **k: None)
+    root = tk.Tk()
+    root.withdraw()
+    app = PaperFlowApp(root, path, auto_load=False)
+
+    def pump():
+        until = time.monotonic() + 12
+        while app.busy and time.monotonic() < until:
+            root.update()
+            time.sleep(0.01)
+        assert not app.busy
+
+    def entries(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ttk.Entry):
+                yield child
+            yield from entries(child)
+
+    try:
+        field = next(
+            w
+            for w in entries(app.setting_tabs)
+            if str(w.cget("textvariable")) == str(app.cloud_paths["destination.vault_dir"])
+        )
+        config_before = path.read_bytes()
+        field.delete(0, "end")
+        field.insert(0, str(moved))
+        assert app.cloud_paths["destination.vault_dir"].get() == str(moved)
+        assert app.cloud_paths_dirty() and "未保存" in app.cloud_path_hint.get()
+        assert path.read_bytes() == config_before
+        app.cloud_refresh()
+        assert app.fields["destination.vault_dir"]() == str(moved)
+        app.cloud_save_paths()
+        pump()
+        assert not errors and app.service.config().destination.vault_dir == moved
+        assert not app.cloud_paths_dirty()
+        # PC間同期側の編集も設定タブへ即時反映し、設定タブから保存できる。
+        app.cloud_paths["destination.vault_dir"].set(str(original))
+        assert app.fields["destination.vault_dir"]() == str(original)
+        app.save_settings()
+        pump()
+        assert not errors and app.service.config().destination.vault_dir == original
+        invalid = str(tmp_path / "unrelated-vault")
+        config_before = path.read_bytes()
+        app.cloud_paths["destination.vault_dir"].set(invalid)
+        app.cloud_save_paths()
+        pump()
+        assert errors and path.read_bytes() == config_before
+        assert app.fields["destination.vault_dir"]() == invalid
+        assert app.cloud_paths["destination.vault_dir"].get() == invalid
+        app._reload_settings()
+        assert app.fields["destination.vault_dir"]() == str(original)
+        assert not app.cloud_paths_dirty()
+        assert tree(original) == contents and tree(moved) == contents
+        with Store(app.service.config().storage.database, readonly=True) as store:
+            assert len(store.rows("SELECT * FROM analysis_runs")) == 1
+    finally:
+        app._destroy()

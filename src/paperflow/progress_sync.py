@@ -185,6 +185,38 @@ class ProgressSync:
             self._save()
         return self.status()
 
+    def relocate_folder(self, folder):
+        """同じ共有の場所だけ保存する。受信・公開・Drive完了確認はしない。"""
+        from paperflow.folder_sync import FolderTransport
+
+        with local_lock(self.cfg.storage.data_dir):
+            # GUI以外の設定更新とも競合しないよう、ロック取得後に読み直す。
+            self.local = settings(self.cfg)
+            if (
+                not self.enabled
+                or self.local.get("transport") != "folder"
+                or not self.local.get("head")
+            ):
+                raise SyncError("場所だけの変更は、設定済みの既存共有に使用してください")
+            transport = FolderTransport(self.cfg, folder)
+            workspace = transport.workspace()
+            if workspace["workspace_id"] != self.local.get("workspace_id"):
+                raise SyncError("別の共有フォルダです。元の設定と進捗を保持しました")
+            self.transport = transport
+            remote = self._remote()
+            if remote is None:
+                raise SyncError("共有セーブがまだありません。元の設定を保持しました")
+            data = unpack(transport.download(remote["blob_id"]), remote["blob_sha256"])
+            if digest(data) != remote["state_hash"]:
+                raise SyncError("共有データの内容ハッシュが一致しません。元の設定を保持しました")
+            self.local["shared_folder"] = workspace["shared_folder"]
+            self.confirmed = False
+            self._save()
+        return dict(
+            self.status(),
+            message="共有フォルダの場所を保存しました。進捗の受信・送信は行っていません。Drive完了を確認し、「確認して取り込みを許可」を押してください。",
+        )
+
     def sync(self, *, _lock_held=False, publish=True):
         if not self.enabled:
             return self.status()

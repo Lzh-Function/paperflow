@@ -328,3 +328,46 @@ def test_same_pc_crash_keeps_unknown_result_blocked(pcs, tmp_path):
     restarted.end()
     with Store(a.storage.database, readonly=True) as store:
         assert store.paper(paper_id)["error_type"] == "sync_result_unknown"
+
+
+def test_relocating_only_saves_local_path_without_confirmation_or_sync(pcs, tmp_path):
+    a, _, _ = pcs
+    folder = tmp_path / "old-shared"
+    home = connected(a, folder)
+    home.begin()
+    before = dict(home.local)
+    moved = tmp_path / "moved-shared"
+    shutil.move(folder, moved)
+    database = a.storage.database.read_bytes()
+    shared = tree(moved)
+    result = home.relocate_folder(moved)
+    assert not result["confirmed"]
+    assert home.local["shared_folder"] == str(moved)
+    assert {k: v for k, v in home.local.items() if k not in {"shared_folder", "updated_at"}} == {
+        k: v for k, v in before.items() if k not in {"shared_folder", "updated_at"}
+    }
+    assert a.storage.database.read_bytes() == database and tree(moved) == shared
+    with pytest.raises(SyncError, match="未確認"):
+        home.begin()
+    assert tree(moved) == shared
+
+
+@pytest.mark.parametrize("failure", ["other-workspace", "old-copy", "corrupt-object"])
+def test_invalid_relocation_keeps_local_settings_and_progress(pcs, tmp_path, failure):
+    a, _, _ = pcs
+    folder = tmp_path / "shared"
+    home = connected(a, folder)
+    candidate = tmp_path / "candidate"
+    if failure == "other-workspace":
+        FolderTransport(a, candidate).create_workspace("別共有")
+    else:
+        shutil.copytree(folder, candidate)
+        if failure == "old-copy":
+            home.begin()
+        else:
+            next((candidate / "objects").glob("*.gz")).write_bytes(b"broken")
+    before = tree(a.storage.data_dir)
+    shared = tree(candidate)
+    with pytest.raises((SyncError, ValueError)):
+        home.relocate_folder(candidate)
+    assert tree(a.storage.data_dir) == before and tree(candidate) == shared

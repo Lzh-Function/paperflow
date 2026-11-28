@@ -66,14 +66,17 @@ def page_template():
 def copy_database_dependencies(root, stage):
     # 疎なC:プレビューにも、既存のナビゲーションが指す凍結済み制御索引だけを用意する。
     # 廃止経路の原本や会話履歴を展開せず、既存リンクと本文を変更しない。
-    name = "35_Remote_Captures/90_Archive/legacy-remote-capture/index/remote-capture-index.md"
-    live = target(root, name)
-    if not live.is_file():
-        return {}
-    destination = target(stage, name)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(live, destination)
-    return {name: sha(live)}
+    guards = {}
+    for zone in ("35_Remote_Captures", "35_Agent_Sessions"):
+        name = zone + "/90_Archive/legacy-remote-capture/index/remote-capture-index.md"
+        live = target(root, name)
+        if not live.is_file():
+            continue
+        destination = target(stage, name)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(live, destination)
+        guards[name] = sha(destination)
+    return guards
 
 
 def install(stage):

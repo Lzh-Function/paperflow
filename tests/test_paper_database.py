@@ -236,13 +236,14 @@ def test_install_is_repeatable_and_native_index_command_updates_automatically(tm
     assert "2件" in (tmp_path / db.PAGE).read_text(encoding="utf-8")
 
 
-def test_new_paper_bundle_updates_database_and_validates_it_once(wiki_config):
+@pytest.mark.parametrize("archive_zone", ["35_Remote_Captures", "35_Agent_Sessions"])
+def test_new_paper_bundle_updates_database_and_validates_it_once(wiki_config, archive_zone):
     cfg = wiki_config
     infrastructure(cfg.destination.vault_dir)
     install(cfg.destination.vault_dir)
     # 本番Vaultと同じく、既存ナビゲーションが指す廃止済み制御索引を含める。
     # sparse previewでもリンク解決でき、凍結済み索引自体は書き換えない。
-    archive = "35_Remote_Captures/90_Archive/legacy-remote-capture/index/remote-capture-index.md"
+    archive = archive_zone + "/90_Archive/legacy-remote-capture/index/remote-capture-index.md"
     archived_index = cfg.destination.vault_dir / archive
     archived_index.parent.mkdir(parents=True)
     archived_index.write_text("# 合成の凍結索引\n", encoding="utf-8")
@@ -258,6 +259,16 @@ def test_new_paper_bundle_updates_database_and_validates_it_once(wiki_config):
     assert (bundle / "preview" / archive).read_bytes() == archived_index.read_bytes()
     assert archive in plan["frozen_guards"]
     assert archive not in [e["path"] for e in plan["changes"]]
+    # 新旧どちらの配置でも、準備後の変更を無視して反映しない。
+    from paperflow.obsidian.writer import WriteConflict
+
+    original = archived_index.read_bytes()
+    archived_index.write_text("準備後の変更\n", encoding="utf-8")
+    after_edit = tree(cfg.destination.vault_dir)
+    with pytest.raises(WriteConflict, match="凍結出典"):
+        apply(cfg, bundle)
+    assert tree(cfg.destination.vault_dir) == after_edit
+    archived_index.write_bytes(original)
     assert allowed_write(db.PAGE) and allowed_write("scripts/paper_database.py")
     assert not allowed_write("00_System/Index/任意のデータベース.md")
     apply(cfg, bundle)

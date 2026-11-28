@@ -72,6 +72,12 @@ class GuiService:
         self.clear_sync_error()
         return result
 
+    def relocate_progress_folder(self, folder):
+        result = self.cloud().relocate_folder(folder)
+        self._sync_confirmation = None
+        self.clear_sync_error()
+        return result
+
     def create_progress_folder(self, folder, name):
         from paperflow.drive_paths import drive_path
         from paperflow.folder_sync import FolderTransport

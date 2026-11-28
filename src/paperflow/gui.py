@@ -860,6 +860,9 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
         ttk.Label(
             head, text="保存した設定は次の処理から使用します。", style="Muted.TLabel", padding=10
         ).pack(side="left")
+        ttk.Label(self.settings_tab, textvariable=self.cloud_path_hint, wraplength=990).pack(
+            anchor="w"
+        )
         self.setting_tabs = ttk.Notebook(self.settings_tab)
         self.setting_tabs.pack(fill="both", expand=True)
 
@@ -876,6 +879,7 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
             child.destroy()
         self.fields = {}
         values = config_values(self.service.path)
+        self._path_edit_loading = True
         hints = comments(self.service.path)
         self.settings_original = self.service.path.read_text(encoding="utf-8-sig")
         for section, title in SECTIONS.items():
@@ -907,7 +911,11 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
                     widget = ttk.Checkbutton(frame, variable=var, text="有効")
                     getter = var.get
                 else:
-                    var = tk.StringVar(value="" if value is None else str(value))
+                    if dotted in self.cloud_paths:
+                        var = self.cloud_paths[dotted]
+                        var.set("" if value is None else str(value))
+                    else:
+                        var = tk.StringVar(value="" if value is None else str(value))
                     if key in CHOICES:
                         var.set(CHOICES[key][value])
                         widget = ttk.Combobox(
@@ -946,6 +954,9 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
                     ttk.Label(frame, text=hint, style="Hint.TLabel", wraplength=690).grid(
                         row=row * 2 + 1, column=1, sticky="w", pady=(3, 9)
                     )
+        self._saved_path_values = {name: var.get() for name, var in self.cloud_paths.items()}
+        self._path_edit_loading = False
+        self.cloud_path_hint.set("")
         self._refresh_permission()
 
     def _settings_wheel(self, event):
@@ -1066,6 +1077,8 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
             )
         )
         ready = not self.busy and self.plan is not None and bool(self.plan.get("items")) and allowed
+        if self.cloud_paths_dirty():
+            ready = False
         from paperflow.progress_sync import settings
 
         if settings(self.cfg).get("enabled") and not self.service.progress_confirmed(self.cfg):

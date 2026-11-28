@@ -84,6 +84,7 @@ class SyncPanel:
         self.cloud_advanced_open = tk.BooleanVar(value=False)
         self.cloud_actions = {}
         self.cloud_paths = {}
+        self.cloud_path_hint = tk.StringVar()
         ttk.Label(frame, text="PC間同期", style="Title.TLabel").pack(anchor="w")
         ttk.Label(frame, textvariable=self.cloud_next, style="Heading.TLabel", wraplength=990).pack(
             anchor="w", pady=(8, 6)
@@ -162,6 +163,7 @@ class SyncPanel:
         ):
             var = tk.StringVar(value=str(value or ""))
             self.cloud_paths[name] = var
+            var.trace_add("write", self.cloud_path_edited)
             ttk.Label(paths, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12))
             self.mutable_widget(ttk.Entry(paths, textvariable=var)).grid(
                 row=row, column=1, sticky="ew", pady=3
@@ -172,6 +174,7 @@ class SyncPanel:
         row = ttk.Frame(setup)
         row.pack(fill="x")
         self.button(row, "このPCのパスを保存", self.cloud_save_paths, side="left")
+        ttk.Label(setup, textvariable=self.cloud_path_hint, wraplength=990).pack(anchor="w", pady=4)
         self.button(row, "Claudeにログイン", lambda: self.cloud_cli_login("claude"), side="left")
         self.button(
             row, "Codexにログイン", lambda: self.cloud_cli_login("codex"), side="left", padx=6
@@ -208,7 +211,7 @@ class SyncPanel:
         )
         ttk.Label(
             setup,
-            text="最初の1台だけ新規作成します。2台目・共有フォルダの移動は「既存の共有を引き継ぐ／場所を変更」を使います。\n引き継ぎ前に、上部のDrive確認へチェックを入れてください。",
+            text="最初の1台だけ新規作成します。2台目は上部のDrive確認後に「既存の共有を引き継ぐ／場所を変更」を押してください。\n設定済み共有の場所変更は、場所だけを保存してからDrive完了を確認します。",
             wraplength=990,
         ).pack(anchor="w", pady=6)
         self.cloud_advanced_toggle = ttk.Checkbutton(
@@ -256,6 +259,34 @@ class SyncPanel:
             os.path.abspath(selected)
         ) == os.path.normcase(os.path.abspath(saved))
 
+    def cloud_paths_dirty(self):
+        saved = getattr(self, "_saved_path_values", {})
+        return any(
+            var.get() != saved[name] for name, var in self.cloud_paths.items() if name in saved
+        )
+
+    def cloud_path_edited(self, *args):
+        if getattr(self, "_path_edit_loading", False) or not hasattr(self, "_saved_path_values"):
+            return
+        self.service._sync_confirmation = None
+        self.drive_checked.set(False)
+        hint = "保存場所に未保存の変更があります。「このPCのパスを保存」または「設定を保存」を押してください。"
+        self.cloud_path_hint.set(hint if self.cloud_paths_dirty() else "")
+        if hasattr(self, "start_button"):
+            if self.cloud_paths_dirty():
+                self.cloud_next.set(hint)
+            else:
+                self.cloud_refresh()
+            self._buttons()
+
+    def cloud_require_saved_paths(self):
+        if self.cloud_paths_dirty():
+            messagebox.showinfo(
+                "保存場所が未保存です", self.cloud_path_hint.get(), parent=self.root
+            )
+            return False
+        return True
+
     def cloud_update_buttons(self):
         state = getattr(self, "_cloud_state", {})
         connected = state.get("enabled") and state.get("transport") == "folder"
@@ -265,7 +296,8 @@ class SyncPanel:
         permissions = dict(
             create=bool(self.cloud_folder.get().strip())
             and (not state.get("enabled") or (connected and not state.get("head"))),
-            join=bool(self.cloud_folder.get().strip()) and self.drive_checked.get(),
+            join=bool(self.cloud_folder.get().strip())
+            and (self.drive_checked.get() or (connected and state.get("head") and not same)),
             confirm=same and self.drive_checked.get(),
             sync=same,
             exit=confirmed,
@@ -275,7 +307,11 @@ class SyncPanel:
             acknowledge=confirmed,
         )
         for key, button in self.cloud_actions.items():
-            button.configure(state="normal" if permissions[key] and not self.busy else "disabled")
+            button.configure(
+                state="normal"
+                if permissions[key] and not self.busy and not self.cloud_paths_dirty()
+                else "disabled"
+            )
 
     def cloud_refresh(self, result=None):
         cloud = self.service.cloud()
@@ -283,9 +319,6 @@ class SyncPanel:
         binding = self.service._sync_binding(cfg)
         new_service = self._cloud_seen_service is not self.service
         if self._cloud_seen_service is not None and new_service:
-            for name, var in self.cloud_paths.items():
-                section, key = name.split(".")
-                var.set(str(getattr(getattr(cfg, section), key) or ""))
             # trace callbacks run only after the service switch is recorded below.
             self._cloud_seen_service = self.service
             self.cloud_folder.set(
@@ -345,6 +378,9 @@ class SyncPanel:
                 next_step = "引き継ぎ確認済み。「取り込み」へ進めます。終わったら「共有フォルダへ保存して終了」。"
         if isinstance(result, str):
             text += "\n" + result
+        if self.cloud_paths_dirty():
+            next_step = self.cloud_path_hint.get()
+            text += "\n保存場所はまだ変更していません。設定を保存すると反映します。"
         if error:
             self.cloud_result.set("前回停止した理由：" + error["message"])
         elif self.cloud_result.get().startswith("前回停止した理由："):
@@ -354,6 +390,8 @@ class SyncPanel:
         self.cloud_update_buttons()
 
     def _require_saved_folder(self):
+        if not self.cloud_require_saved_paths():
+            return False
         state = self.service.cloud().status()
         if not state.get("enabled") or state.get("transport") != "folder":
             messagebox.showinfo(
@@ -400,7 +438,12 @@ class SyncPanel:
 
     def cloud_save_paths(self):
         changes = {k: v.get().strip() or None for k, v in self.cloud_paths.items()}
-        self.submit("settings", lambda: save_changes(self.service.path, changes), self.cloud_done)
+        original = self.settings_original
+        self.submit(
+            "settings",
+            lambda: save_changes(self.service.path, changes, expected_text=original),
+            self.cloud_done,
+        )
 
     def cloud_cli_login(self, provider):
         import os
@@ -490,6 +533,8 @@ class SyncPanel:
         return True
 
     def cloud_create(self):
+        if not self.cloud_require_saved_paths():
+            return
         folder, name = self.cloud_folder.get().strip(), self.cloud_name.get().strip()
         if not folder:
             messagebox.showinfo(
@@ -517,6 +562,20 @@ class SyncPanel:
         self._buttons()
 
     def cloud_join(self):
+        if not self.cloud_require_saved_paths():
+            return
+        state = self.service.cloud().status()
+        if (
+            state.get("enabled")
+            and state.get("transport") == "folder"
+            and state.get("head")
+            and not self.cloud_folder_is_saved(state)
+        ):
+            folder = self.cloud_folder.get().strip()
+            self.submit(
+                "cloud", lambda: self.service.relocate_progress_folder(folder), self.cloud_done
+            )
+            return
         if not self._drive_confirmed():
             return
         folder = self.cloud_folder.get().strip()
