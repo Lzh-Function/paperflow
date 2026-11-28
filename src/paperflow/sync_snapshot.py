@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 
 from paperflow.drive_paths import relative_path
 from paperflow.models import digest
+from paperflow.paths import resolve_path
 from paperflow.portable import bib_key, profile
 from paperflow.store import Store
 from paperflow.vault_paths import binding_matches, export_path, export_relative
@@ -48,8 +49,8 @@ def local(root, name):
         or any(p.casefold() == ".obsidian" for p in rel.parts)
     ):
         raise ValueError("共有パスが範囲外です")
-    result = root.joinpath(*rel.parts).resolve()
-    if not result.is_relative_to(root.resolve()) or result == root.resolve():
+    result = resolve_path(root.joinpath(*rel.parts))
+    if not result.is_relative_to(resolve_path(root)) or result == resolve_path(root):
         raise ValueError("共有パスが範囲外です")
     return result
 
@@ -344,7 +345,7 @@ def backup_local(cfg):
     if cfg.storage.database.exists():
         with (
             sqlite3.connect(
-                cfg.storage.database.resolve().as_uri() + "?mode=ro", uri=True
+                resolve_path(cfg.storage.database).as_uri() + "?mode=ro", uri=True
             ) as source,
             sqlite3.connect(backup / "state.db") as saved,
         ):
@@ -356,8 +357,8 @@ def backup_local(cfg):
 
 
 def rollback_local(cfg, backup):
-    if not backup.resolve().is_relative_to(
-        (cfg.storage.data_dir / "progress-sync/backups").resolve()
+    if not resolve_path(backup).is_relative_to(
+        resolve_path(cfg.storage.data_dir / "progress-sync/backups")
     ):
         raise ValueError("同期バックアップの範囲が不正です")
     if (backup / "state.db").exists():

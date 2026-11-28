@@ -9,13 +9,14 @@ from paperflow.agents.catalog import model_id
 from paperflow.config import SettingsError, load_config
 from paperflow.model_selection import cached_catalog, get_catalog, preferences, remember
 from paperflow.obsidian.writer import local_lock
+from paperflow.paths import resolve_path
 from paperflow.pipeline import Pipeline
 from paperflow.progress_sync import ProgressSync
 
 
 class GuiService:
     def __init__(self, path):
-        self.path = Path(path).resolve()
+        self.path = resolve_path(Path(path))
         self.stop_event = threading.Event()
         self._registry = None
         self._registry_binding = None
@@ -85,7 +86,7 @@ class GuiService:
                 if (
                     state.get("head")
                     or not state.get("shared_folder")
-                    or Path(drive_path(state["shared_folder"])).resolve() != transport.root
+                    or resolve_path(Path(drive_path(state["shared_folder"]))) != transport.root
                 ):
                     raise SyncError(
                         "共有は設定済みです。「共有ファイルを受信・更新」を使ってください。別の共有先に変える場合は先に解除してください"

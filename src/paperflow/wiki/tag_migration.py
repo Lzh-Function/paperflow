@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 
 from paperflow.config import SettingsError
+from paperflow.paths import resolve_path
 from paperflow.subject_tags import patch_note, register_topics
 from paperflow.wiki.bundle import apply, finalize_bundle, inventory, json_write, target
 from paperflow.wiki.export import run_script, validate_changed
@@ -43,8 +44,8 @@ def inspect(cfg):
 
 
 def prepare(cfg, bundle):
-    root = cfg.destination.vault_dir.resolve()
-    bundle = bundle.resolve()
+    root = resolve_path(cfg.destination.vault_dir)
+    bundle = resolve_path(bundle)
     if (
         bundle.exists()
         or bundle.is_relative_to(root)

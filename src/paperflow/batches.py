@@ -18,6 +18,7 @@ from paperflow.drive_paths import drive_path
 from paperflow.ingestion.bibtex_reader import identity_key, normalize_doi
 from paperflow.models import Bibliography, digest
 from paperflow.obsidian.writer import SafeWriter, WriteConflict, local_lock
+from paperflow.paths import resolve_path
 from paperflow.pipeline import Pipeline
 from paperflow.portable import bib_key, profile
 from paperflow.store import Store, now
@@ -32,7 +33,7 @@ def binding(config, *, identify=False):
         bibtex=config.source.bibtex_file,
     )
     result = {
-        key: os.path.normcase(str(value.resolve())) if value is not None else None
+        key: os.path.normcase(str(resolve_path(value))) if value is not None else None
         for key, value in paths.items()
     }
     if identify:
@@ -44,11 +45,11 @@ def binding(config, *, identify=False):
 
 
 def local_output(config, path):
-    path = path.resolve()
+    path = resolve_path(path)
     if any(p.casefold() == ".obsidian" for p in path.parts):
         raise SettingsError(".obsidianはバッチ保存先にできません")
     for protected in [config.source.paperpile_dir, config.destination.vault_dir]:
-        if path.is_relative_to(protected.resolve()):
+        if path.is_relative_to(resolve_path(protected)):
             raise SettingsError("バッチの保存先はPaperpile・Vaultの外にしてください")
     if os.name == "nt" and path.drive.upper() != "C:":
         raise SettingsError("バッチの保存先はC:内にしてください")
@@ -212,8 +213,8 @@ def plan(
                 if meta.get("no_external"):
                     excluded["no_external"] += 1
                     continue
-                path = Path(match["path"]).resolve()
-                if not path.is_relative_to(config.source.paperpile_dir.resolve()):
+                path = resolve_path(Path(match["path"]))
+                if not path.is_relative_to(resolve_path(config.source.paperpile_dir)):
                     raise SettingsError("原本範囲外のPDF対応を拒否しました")
                 before = path.stat()
                 h = sha(path)
@@ -319,12 +320,14 @@ def load(config, path):
     ) != len(items):
         raise SettingsError("バッチ対象が重複しています")
     for p in items:
-        p["pdf"] = str(Path(drive_path(p["pdf"])).resolve())
+        p["pdf"] = str(resolve_path(Path(drive_path(p["pdf"]))))
         if (
             not isinstance(p.get("paper_id"), str)
             or not isinstance(p.get("bib_hash"), str)
             or not re.fullmatch("[0-9a-f]{64}", p.get("pdf_sha256", ""))
-            or not Path(p["pdf"]).resolve().is_relative_to(config.source.paperpile_dir.resolve())
+            or not resolve_path(Path(p["pdf"])).is_relative_to(
+                resolve_path(config.source.paperpile_dir)
+            )
         ):
             raise SettingsError("バッチ対象の同一性・PDFパスが不正です")
     return data

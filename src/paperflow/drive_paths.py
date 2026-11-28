@@ -2,6 +2,8 @@
 
 from pathlib import Path, PureWindowsPath
 
+from paperflow.paths import resolve_path
+
 
 def drive_path(value):
     """ドライブ直下の旧表示名だけを読み替える。任意のフォルダ名は変更しない。"""
@@ -18,8 +20,8 @@ def drive_path(value):
 
 
 def relative_path(value, root):
-    path = Path(drive_path(value)).resolve()
-    base = Path(drive_path(root)).resolve()
+    path = resolve_path(Path(drive_path(value)))
+    base = resolve_path(Path(drive_path(root)))
     if not path.is_relative_to(base):
         raise ValueError("共有データに原本/Vault外のパスがあります")
     return path.relative_to(base).as_posix()

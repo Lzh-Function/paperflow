@@ -19,6 +19,7 @@ from paperflow.gui_recovery import RecoveryPanel
 from paperflow.gui_service import GuiService
 from paperflow.gui_sync import SyncPanel
 from paperflow.library import FILTERS, filter_rows
+from paperflow.paths import resolve_path
 
 PROVIDERS = {
     "Claude Code CLI": "claude",
@@ -770,11 +771,11 @@ class PaperFlowApp(SyncPanel, RecoveryPanel):
         row = self.library_by_id.get(selected[0]) if selected else None
         if not row or not row.get(key):
             return
-        path = Path(row[key]).resolve()
+        path = resolve_path(Path(row[key]))
         root = (
             self.cfg.source.paperpile_dir if key == "pdf_path" else self.cfg.destination.vault_dir
         )
-        if not path.is_relative_to(root.resolve()) or any(
+        if not path.is_relative_to(resolve_path(root)) or any(
             p.casefold() == ".obsidian" for p in path.parts
         ):
             messagebox.showerror(

@@ -11,6 +11,7 @@ from pathlib import Path
 from paperflow.config import SettingsError
 from paperflow.models import digest
 from paperflow.obsidian.writer import WriteConflict, local_lock
+from paperflow.paths import resolve_path
 from paperflow.pipeline import Pipeline
 from paperflow.store import Store
 from paperflow.wiki.bundle import apply, sha, target
@@ -572,7 +573,7 @@ def comparison(cfg, paper_id, run_id):
                     local = target(cfg.destination.vault_dir, asset["path"])
                 parts.append(
                     '<img alt="論文の図表" src="'
-                    + html.escape(local.resolve().as_uri(), quote=True)
+                    + html.escape(resolve_path(local).as_uri(), quote=True)
                     + '">'
                 )
             previous = match.end()

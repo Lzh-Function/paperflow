@@ -9,6 +9,7 @@ import yaml
 
 from paperflow.config import Config, SettingsError, load_config
 from paperflow.obsidian.writer import WriteConflict, local_lock
+from paperflow.paths import resolve_path
 
 
 def config_values(path):
@@ -17,12 +18,12 @@ def config_values(path):
 
 
 def save_changes(path, changes, *, expected_text=None):
-    path = Path(path).resolve()
+    path = resolve_path(Path(path))
     config = load_config(path)
     if (
         (os.name == "nt" and path.drive.upper() != "C:")
         or any(
-            path.is_relative_to(p.resolve())
+            path.is_relative_to(resolve_path(p))
             for p in [config.source.paperpile_dir, config.destination.vault_dir]
         )
         or any(p.casefold() == ".obsidian" for p in path.parts)

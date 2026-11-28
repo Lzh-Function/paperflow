@@ -17,6 +17,7 @@ import yaml
 from paperflow.config import SettingsError
 from paperflow.ingestion.pdf_discovery import is_redirect
 from paperflow.obsidian.writer import WriteConflict
+from paperflow.paths import resolve_path
 from paperflow.wiki.render import stamp
 
 EXCLUDE = {
@@ -67,7 +68,7 @@ def target(root, relative):
     for p in [result, *result.parents]:
         if (p.exists() or p.is_symlink()) and is_redirect(p):
             raise SettingsError("リパースポイント経由のVault操作を拒否しました")
-    if not result.resolve().is_relative_to(root.resolve()):
+    if not resolve_path(result).is_relative_to(resolve_path(root)):
         raise SettingsError("Vault外への操作を拒否しました")
     return result
 
@@ -211,7 +212,7 @@ def finalize_bundle(bundle, root, before, details):
         changes.append(dict(path=path, before=expected, after=digest))
     plan = dict(
         version=1,
-        vault=str(root.resolve()),
+        vault=str(resolve_path(root)),
         created_at=stamp(),
         inventory=before,
         changes=changes,
@@ -371,7 +372,7 @@ def _check_relocated_inventory(root, plan):
 def apply(config, bundle, *, approved_promotion_sha256=None):
     if not config.destination.allow_vault_write:
         raise SettingsError("初回本番書き込みは未承認です。差分を確認してから許可してください")
-    bundle = bundle.resolve()
+    bundle = resolve_path(bundle)
     plan = json.loads((bundle / "plan.json").read_text(encoding="utf-8"))
     if plan.get("version") != 1:
         raise SettingsError("未対応の反映計画です")
@@ -387,7 +388,7 @@ def apply(config, bundle, *, approved_promotion_sha256=None):
                 "Wiki統合は具体的差分の承認後、確認済みplanのSHA-256を指定してください"
             )
         permitted = allowed_promotion_write
-    root = config.destination.vault_dir.resolve()
+    root = resolve_path(config.destination.vault_dir)
     if not isinstance(plan.get("vault"), str) or not Path(plan["vault"]).is_absolute():
         raise SettingsError("差分に有効な元Vaultの記録がありません")
     if any(not permitted(e["path"]) for e in plan["changes"]):

@@ -9,6 +9,7 @@ import yaml
 from paperflow.config import SettingsError
 from paperflow.ingestion.pdf_discovery import is_redirect
 from paperflow.models import digest
+from paperflow.paths import resolve_path
 
 
 class WriteConflict(RuntimeError):
@@ -58,7 +59,7 @@ class SafeWriter:
         for parent in [target, *target.parents]:
             if (parent.exists() or parent.is_symlink()) and is_redirect(parent):
                 raise SettingsError(f"リパースポイントを拒否: {parent}")
-        if not target.resolve().is_relative_to(self.root.resolve()):
+        if not resolve_path(target).is_relative_to(resolve_path(self.root)):
             raise SettingsError("出力先がPaperFlowの外です")
         return target
 

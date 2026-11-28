@@ -252,9 +252,22 @@ def test_shared_folder_cannot_overlap_original_vault_or_cache(pcs, tmp_path):
 def test_join_missing_marker_does_not_create_a_new_library(pcs, tmp_path):
     a, _, _ = pcs
     folder = tmp_path / "not-arrived"
-    with pytest.raises(SyncError, match="同期待ち"):
+    with pytest.raises(SyncError, match="設定済みの共有フォルダが見つかりません") as caught:
         FolderTransport(a, folder).workspace()
+    assert str(folder) in str(caught.value)
+    assert "場所を変更" in str(caught.value)
     assert not folder.exists()
+
+
+def test_missing_marker_in_existing_folder_shows_full_path_without_creating_it(pcs, tmp_path):
+    a, _, _ = pcs
+    folder = tmp_path / "empty-shared"
+    folder.mkdir()
+    before = tree(folder)
+    with pytest.raises(SyncError, match="同期待ち、または選択先が違います") as caught:
+        FolderTransport(a, folder).workspace()
+    assert str(folder / "paperflow-workspace.json") in str(caught.value)
+    assert tree(folder) == before
 
 
 def test_join_marker_only_does_not_publish_an_empty_library(pcs, tmp_path):

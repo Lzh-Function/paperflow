@@ -9,6 +9,7 @@ from importlib.resources import files
 import yaml
 
 from paperflow.config import SettingsError
+from paperflow.paths import resolve_path
 from paperflow.resources.wiki_paper_database import BEGIN, END, PAGE, update_database
 from paperflow.wiki.bundle import finalize_bundle, inventory, sha, target
 from paperflow.wiki.export import run_script, validate_changed
@@ -131,12 +132,12 @@ def install(stage):
 
 
 def prepare_database(cfg, bundle):
-    root = cfg.destination.vault_dir.resolve()
-    bundle = bundle.resolve()
+    root = resolve_path(cfg.destination.vault_dir)
+    bundle = resolve_path(bundle)
     if (
         bundle.exists()
         or bundle.is_relative_to(root)
-        or bundle.is_relative_to(cfg.source.paperpile_dir.resolve())
+        or bundle.is_relative_to(resolve_path(cfg.source.paperpile_dir))
     ):
         raise SettingsError("差分は原本・Vaultの外の新規C:フォルダに作成してください")
     if os.name == "nt" and bundle.drive.upper() != "C:":

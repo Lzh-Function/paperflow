@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from paperflow.paths import resolve_path
 from paperflow.progress_sync import SyncError
 from paperflow.store import now
 from paperflow.sync_snapshot import MAX_PACKED
@@ -20,7 +21,7 @@ def validate_folder(cfg, path):
     for part in [path, *path.parents]:
         if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
             raise SyncError("共有フォルダにシンボリックリンク/ジャンクションは使用できません")
-    path = path.resolve()
+    path = resolve_path(path)
     if any(p.casefold() == ".obsidian" for p in path.parts):
         raise SyncError(".obsidianは共有先にできません")
     for protected in (
@@ -29,7 +30,7 @@ def validate_folder(cfg, path):
         cfg.storage.data_dir,
         cfg.storage.database.parent,
     ):
-        protected = protected.resolve()
+        protected = resolve_path(protected)
         if path.is_relative_to(protected) or protected.is_relative_to(path):
             raise SyncError(
                 "共有先はPaperpile・Vault・C:の作業データと分離した専用フォルダを選択してください"
@@ -51,7 +52,7 @@ class FolderTransport:
                 break
             if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
                 raise SyncError("共有ファイルにシンボリックリンク/ジャンクションがあります")
-        if not path.resolve().is_relative_to(self.root):
+        if not resolve_path(path).is_relative_to(self.root):
             raise SyncError("共有ファイルが専用フォルダの外を参照しています")
         return path
 
@@ -60,8 +61,16 @@ class FolderTransport:
             with self._path(relative).open("rb") as stream:
                 data = stream.read(limit + 1)
         except FileNotFoundError as exc:
+            if not self.root.is_dir():
+                raise SyncError(
+                    "設定済みの共有フォルダが見つかりません："
+                    + str(self.root)
+                    + "\nDriveのドライブ/保存場所を確認してください。場所を変更した場合は「PC間同期 → 初期設定・保存場所の変更を表示」で実際の共有フォルダを選び、「既存の共有を引き継ぐ／場所を変更」を押してください。共有を新規作成し直す必要はありません"
+                ) from exc
             raise SyncError(
-                "共有ファイルの同期待ちです。両PCのDrive同期完了を確認してください：" + relative
+                "共有ファイルの同期待ち、または選択先が違います："
+                + str(self.root / relative)
+                + "\n両PCのDrive同期完了と、既存のPaperFlow共有フォルダを選んでいることを確認してください"
             ) from exc
         if len(data) > limit:
             raise SyncError("共有ファイルの容量が上限を超えています")

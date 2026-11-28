@@ -6,6 +6,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from paperflow.paths import resolve_path
+
 
 class SettingsError(ValueError):
     pass
@@ -114,13 +116,13 @@ class Config(StrictModel):
 
 
 def inside(path: Path, root: Path) -> bool:
-    return path.resolve().is_relative_to(root.resolve())
+    return resolve_path(path).is_relative_to(resolve_path(root))
 
 
 def load_config(path: Path) -> Config:
     try:
         config = Config.model_validate(yaml.safe_load(path.read_text(encoding="utf-8-sig")))
-        base = path.resolve().parent
+        base = resolve_path(path).parent
         fields = [
             (config.source, "paperpile_dir"),
             (config.source, "bibtex_file"),
@@ -137,7 +139,7 @@ def load_config(path: Path) -> Config:
                 raise SettingsError(
                     "Windowsのドライブ設定はWindowsネイティブPythonで実行してください"
                 )
-            setattr(obj, name, (base / value).resolve())
+            setattr(obj, name, resolve_path(base / value))
         source, vault = config.source.paperpile_dir, config.destination.vault_dir
         if inside(vault, source) or inside(source, vault):
             raise SettingsError("原本とVaultのパスは分離してください")

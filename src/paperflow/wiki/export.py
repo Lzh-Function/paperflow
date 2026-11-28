@@ -13,6 +13,7 @@ from paperflow.agents.schema import validate
 from paperflow.config import SettingsError
 from paperflow.obsidian.writer import WriteConflict
 from paperflow.parsing.pdf_text import extract_pdf
+from paperflow.paths import resolve_path
 from paperflow.store import Store
 from paperflow.wiki.bundle import finalize_bundle, inventory, json_write, sha, target
 from paperflow.wiki.render import render, safe_name, stamp
@@ -62,9 +63,18 @@ def cached_items(config, paper_ids=None):
 
 def run_script(root, script, args=(), *, expect_json=False):
     env = os.environ.copy()
-    env.update(LLM_WIKI_ROOT=str(root.resolve()), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
+    env.update(LLM_WIKI_ROOT=str(resolve_path(root)), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
     proc = subprocess.run(
-        [sys.executable, "-B", "-X", "utf8", str(root / "scripts" / script), *args],
+        [
+            sys.executable,
+            "-B",
+            "-X",
+            "utf8",
+            "-m",
+            "paperflow.paths",
+            str(root / "scripts" / script),
+            *args,
+        ],
         cwd=root,
         env=env,
         capture_output=True,
@@ -215,8 +225,8 @@ def front(path):
 
 
 def prepare(config, items, bundle, *, upgrade=False):
-    root = config.destination.vault_dir.resolve()
-    bundle = bundle.resolve()
+    root = resolve_path(config.destination.vault_dir)
+    bundle = resolve_path(bundle)
     if config.destination.layout != "llm_wiki" or not config.destination.copy_pdf:
         raise SettingsError("正式Wiki出力はlayout: llm_wiki / copy_pdf: trueが必要です")
     if (
@@ -327,7 +337,7 @@ def prepare(config, items, bundle, *, upgrade=False):
             suffix = f" -- {slug}.md"
             parent = stage / "10_Papers/20_Source_Notes"
             # Windowsの長いパス設定に依存しない。原題はfrontmatterに完全保持する。
-            budget = 240 - len(str(parent.resolve()).encode("utf-16-le")) // 2 - 1 - len(suffix)
+            budget = 240 - len(str(resolve_path(parent)).encode("utf-16-le")) // 2 - 1 - len(suffix)
             while title_part and len(title_part.encode("utf-16-le")) // 2 > budget:
                 title_part = title_part[:-1]
             if not title_part:

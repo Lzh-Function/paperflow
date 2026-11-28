@@ -13,6 +13,7 @@ from paperflow.agents.schema import parse_response, validate
 from paperflow.agents.usage import number
 from paperflow.config import SettingsError
 from paperflow.models import digest
+from paperflow.paths import resolve_path
 from paperflow.portable import bib_key
 from paperflow.wiki.bundle import json_write
 
@@ -20,11 +21,11 @@ FILES = ("manifest.json", "analysis.json", "result.json", "input-audit.json", "v
 
 
 def read(cfg, folder, hashes=None):
-    folder = Path(folder).resolve()
+    folder = resolve_path(Path(folder))
     if os.name == "nt" and folder.drive.upper() != "C:":
         raise SettingsError("試験結果はC:内のフォルダを選んでください")
-    if folder.is_relative_to(cfg.destination.vault_dir.resolve()) or folder.is_relative_to(
-        cfg.source.paperpile_dir.resolve()
+    if folder.is_relative_to(resolve_path(cfg.destination.vault_dir)) or folder.is_relative_to(
+        resolve_path(cfg.source.paperpile_dir)
     ):
         raise SettingsError("原本・Vault内の結果は直接取り込みません")
     records, checksums = {}, {}
@@ -32,7 +33,7 @@ def read(cfg, folder, hashes=None):
         path = folder / name
         if (
             not path.is_file()
-            or path.resolve().parent != folder
+            or resolve_path(path).parent != folder
             or path.stat().st_size > cfg.analysis.max_output_bytes * 2
         ):
             raise SettingsError(f"有効なPaperFlow試験結果がありません：{name}")
@@ -78,7 +79,7 @@ def prepare_import(cfg, folder):
     item.pop("artifact", None)
     if item["title"] != manifest.get("title") or item["pdf_sha256"] != manifest.get("pdf_sha256"):
         raise SettingsError("試験結果の書誌・PDFが現在の論文と一致しません")
-    job.update(mode="import", artifact=dict(folder=str(Path(folder).resolve()), hashes=hashes))
+    job.update(mode="import", artifact=dict(folder=str(resolve_path(Path(folder))), hashes=hashes))
     item["import_run_id"] = job["job_id"]
     return job
 
