@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -266,3 +268,146 @@ def test_manual_config_change_and_dry_run_do_not_migrate_or_mutate_data(
     Pipeline(cfg).run(dry_run=True)
     assert capture(cfg)["tables"]["exports"]
     assert tree(cfg.storage.data_dir) == before and tree(moved) == vault
+
+
+@pytest.mark.parametrize("direction", ["parent", "child", "parent-with-old-copy"])
+def test_vault_contents_can_move_to_parent_or_child_without_stale_prefix(
+    tmp_path, monkeypatch, direction
+):
+    path = gui_config(tmp_path)
+    cfg = load_config(path)
+    original = tmp_path / "保存先" / "外側" / "元Vault"
+    original.parent.mkdir(parents=True)
+    shutil.move(cfg.destination.vault_dir, original)
+    cfg = save_changes(path, {"destination.vault_dir": str(original)})
+    for _ in range(2):
+        Pipeline(cfg).run(scan_only=True)
+    plan = batches.plan(cfg, count=1)
+    Pipeline(cfg).run(paper_ids=[plan["items"][0]["paper_id"]])
+    destination = original / "内側" / "Vault" if direction == "child" else original.parent
+    holding = tmp_path / "一時退避"
+    shutil.move(original, holding)
+    destination.mkdir(parents=True, exist_ok=True)
+    for child in holding.iterdir():
+        shutil.move(child, destination / child.name)
+    holding.rmdir()
+    if direction == "parent-with-old-copy":
+        with Store(cfg.storage.database, readonly=True) as store:
+            old_record = store.rows("SELECT * FROM exports")[0]
+        old_note = Path(old_record["target_path"])
+        old_note.parent.mkdir(parents=True)
+        old_note.write_text("古い場所に残った別の本文\n", encoding="utf-8")
+    monkeypatch.setattr(Pipeline, "_provider", forbid)
+    moved = save_changes(path, {"destination.vault_dir": str(destination)})
+    vault_ready(moved)
+    assert batches.execute(moved, Path(plan["plan"]))["registered"] == 1
+    data = capture(moved)
+    assert data["tables"]["exports"][0]["target_path"].startswith("10_Papers/20_Source_Notes/")
+    with Store(moved.storage.database, readonly=True) as store:
+        assert len(store.rows("SELECT * FROM analysis_runs")) == 1
+        row = store.rows("SELECT * FROM exports")[0]
+    assert (
+        export_path(moved, row).parent == moved.destination.vault_dir / "10_Papers/20_Source_Notes"
+    )
+    if direction == "parent-with-old-copy":
+        assert old_note.read_text(encoding="utf-8") == "古い場所に残った別の本文\n"
+
+
+@pytest.mark.parametrize("old_prefix", [r"X:\old-library", r"\\old-server\share\library"])
+def test_old_drive_or_unc_reference_resolves_without_accessing_the_old_location(saved, old_prefix):
+    _, cfg, _, _, _ = saved
+    with Store(cfg.storage.database, readonly=True) as store:
+        row = store.rows("SELECT * FROM exports")[0]
+    relative = export_relative(cfg, row)
+    row["target_path"] = old_prefix + "\\" + relative.replace("/", "\\")
+    assert export_relative(cfg, row) == relative
+    assert export_path(cfg, row).is_file()
+
+
+def test_multiple_destination_moves_preserve_original_saved_and_pending_work(
+    saved, tmp_path, monkeypatch
+):
+    path, cfg, plan, job, _ = saved
+    for name in ["1回目の移動", "2回目の移動"]:
+        new_root = tmp_path / name
+        shutil.move(cfg.destination.vault_dir, new_root)
+        cfg = save_changes(path, {"destination.vault_dir": str(new_root)})
+        vault_ready(cfg)
+        assert len(capture(cfg)["batches"]) == 1
+    monkeypatch.setattr(Pipeline, "_provider", forbid)
+    assert recovery.execute(cfg, recovery.load_job(cfg, job["job_id"]))["status"] == "complete"
+    assert batches.execute(cfg, Path(plan["plan"]))["registered"] == 2
+    with Store(cfg.storage.database, readonly=True) as store:
+        assert len(store.rows("SELECT * FROM analysis_runs")) == 2
+
+
+def test_legacy_layout_can_move_contents_to_parent_without_reanalysis(
+    small_config, tmp_path, monkeypatch
+):
+    cfg = small_config
+    original = tmp_path / "旧形式の保存先" / "元Vault"
+    original.parent.mkdir()
+    shutil.move(cfg.destination.vault_dir, original)
+    cfg.destination.vault_dir = original
+    for _ in range(2):
+        Pipeline(cfg).run(scan_only=True)
+    assert Pipeline(cfg).run()["analyzed"] == 1
+    destination = original.parent
+    for child in original.iterdir():
+        shutil.move(child, destination / child.name)
+    original.rmdir()
+    cfg.destination.vault_dir = destination
+    before = cfg.storage.database.read_bytes()
+    vault_ready(cfg)
+    data = capture(cfg)
+    assert len(data["tables"]["exports"]) == 2
+    assert all(r["target_path"].startswith("PaperFlow/") for r in data["tables"]["exports"])
+    assert cfg.storage.database.read_bytes() == before
+    monkeypatch.setattr(Pipeline, "_provider", forbid)
+    assert Pipeline(cfg).run()["analyzed"] == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windowsの実ドライブ文字の割り当てを検証")
+def test_real_windows_drive_letter_change_preserves_resume_and_cleans_mapping(
+    saved, tmp_path, monkeypatch
+):
+    import ctypes
+
+    path, cfg, planned, job, _ = saved
+    kernel = ctypes.windll.kernel32
+
+    def device(letter):
+        buffer = ctypes.create_unicode_buffer(32768)
+        return buffer.value if kernel.QueryDosDeviceW(letter, buffer, len(buffer)) else None
+
+    mask = kernel.GetLogicalDrives()
+    letter = next(
+        (
+            c + ":"
+            for c in "ZYXWVUTSRQPONMLKJ"
+            if not mask & (1 << (ord(c) - ord("A"))) and device(c + ":") is None
+        ),
+        None,
+    )
+    assert letter is not None, "検証用の未使用ドライブ文字がありません"
+    disk = tmp_path / "合成ドライブ"
+    disk.mkdir()
+    destination = disk / "移動後Vault"
+    shutil.move(cfg.destination.vault_dir, destination)
+    subprocess.run(["subst", letter, str(disk)], check=True, capture_output=True)
+    created = device(letter)
+    assert created is not None
+    try:
+        selected = letter + "\\移動後Vault"
+        monkeypatch.setattr(Pipeline, "_provider", forbid)
+        moved = save_changes(path, {"destination.vault_dir": selected})
+        vault_ready(moved)
+        result = recovery.execute(moved, recovery.load_job(moved, job["job_id"]))
+        assert result["status"] == "complete", result
+        assert result["items"][0]["external_calls"] == 0
+        assert batches.execute(moved, Path(planned["plan"]))["registered"] == 2
+        assert len(capture(moved)["tables"]["exports"]) == 2
+    finally:
+        assert device(letter) == created, "ドライブ割り当てが外部で変更されたため解除しません"
+        subprocess.run(["subst", letter, "/D"], check=True, capture_output=True)
+        assert device(letter) is None

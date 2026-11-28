@@ -87,12 +87,19 @@ def test_selected_reanalysis_preserves_active_note_state_figures_and_excludes_no
     assert not list((cfg.storage.data_dir / "summary-versions").glob(".extract-*"))
 
 
-def test_compare_adopt_and_restore_keep_versions_and_original_assets(registered):
+@pytest.mark.parametrize("relocate", [False, True])
+def test_compare_adopt_and_restore_keep_versions_and_original_assets(
+    registered, tmp_path, relocate
+):
     cfg, paper_id, original_id = registered
     external(cfg)
     original = history(cfg, paper_id)["versions"][0]["note_text"]
     old_images = {k: v for k, v in tree(cfg.destination.vault_dir).items() if k.endswith(".png")}
     candidate = generate(cfg, [paper_id], provider=VisualProvider())["completed"][0]["run_id"]
+    if relocate:
+        new_root = tmp_path / "移動後のVault"
+        shutil.move(cfg.destination.vault_dir, new_root)
+        cfg.destination.vault_dir = new_root
     preview = Path(comparison(cfg, paper_id, candidate))
     content = preview.read_text(encoding="utf-8")
     assert content.count('<img alt="論文の図表"') >= 2

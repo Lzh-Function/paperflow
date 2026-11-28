@@ -26,6 +26,21 @@ def _relative(cfg, name):
     return path.as_posix()
 
 
+def _export_location(cfg, row, name):
+    name = _relative(cfg, name)
+    parts = PurePosixPath(name).parts
+    prefix = (
+        ("10_Papers", "20_Source_Notes")
+        if row["export_kind"] == "WikiSource"
+        else ("PaperFlow", row["export_kind"])
+    )
+    if len(parts) != 3 or tuple(p.casefold() for p in parts[:2]) != tuple(
+        p.casefold() for p in prefix
+    ):
+        raise ValueError("保存記録が現在のVaultの出力フォルダを指していません")
+    return name
+
+
 def _receipt(cfg, row):
     identifier = row["paper_id"]
     if not re.fullmatch(r"[a-f0-9]{16,32}", identifier):
@@ -96,9 +111,11 @@ def export_relative(cfg, row, *, prove=True):
     if any(p == ".." or p.casefold() == ".obsidian" for p in parts):
         raise ValueError("保存記録のパスが範囲外です")
     if not Path(value).is_absolute() and not PureWindowsPath(value).is_absolute():
-        return _relative(cfg, value)
+        return _export_location(cfg, row, value)
     try:
-        return _relative(cfg, Path(value).relative_to(cfg.destination.vault_dir).as_posix())
+        return _export_location(
+            cfg, row, Path(value).relative_to(cfg.destination.vault_dir).as_posix()
+        )
     except ValueError:
         pass
     if not prove:
